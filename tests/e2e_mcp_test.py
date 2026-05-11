@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -581,7 +583,7 @@ def build_e2e_dataset(output_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-class TestResult:
+class E2EResult:
     def __init__(self, scenario_id: str, name: str, status: str, notes: str = "", output: str = ""):
         self.scenario_id = scenario_id
         self.name = name
@@ -590,23 +592,23 @@ class TestResult:
         self.output = output
 
 
-results: list[TestResult] = []
+results: list[E2EResult] = []
 
 
 def record(scenario_id: str, name: str, passed: bool, notes: str = "", output: str = ""):
     status = "pass" if passed else "fail"
-    results.append(TestResult(scenario_id, name, status, notes, output))
+    results.append(E2EResult(scenario_id, name, status, notes, output))
     icon = "✅" if passed else "❌"
     print(f"  {icon} {scenario_id}: {name} — {notes}")
 
 
 def record_partial(scenario_id: str, name: str, notes: str = "", output: str = ""):
-    results.append(TestResult(scenario_id, name, "partial", notes, output))
+    results.append(E2EResult(scenario_id, name, "partial", notes, output))
     print(f"  ⚠️  {scenario_id}: {name} — {notes}")
 
 
 def record_skip(scenario_id: str, name: str, notes: str = ""):
-    results.append(TestResult(scenario_id, name, "skip", notes))
+    results.append(E2EResult(scenario_id, name, "skip", notes))
     print(f"  ⏭️  {scenario_id}: {name} — {notes}")
 
 
@@ -617,6 +619,20 @@ def record_skip(scenario_id: str, name: str, notes: str = ""):
 
 def _patch_output(output_dir: Path):
     return patch("recipebrain.mcp_server._output_dir", return_value=output_dir)
+
+
+# ---------------------------------------------------------------------------
+# Fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def output_dir(tmp_path: Path) -> Path:
+    """Build the E2E dataset in a temp directory and return its path."""
+    out = tmp_path / "output"
+    out.mkdir()
+    build_e2e_dataset(out)
+    return out
 
 
 # ---------------------------------------------------------------------------

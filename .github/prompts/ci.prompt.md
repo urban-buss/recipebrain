@@ -23,15 +23,23 @@ mypy src/recipebrain
 
 Report errors but continue (typecheck is non-blocking, matching CI config).
 
-## 3. Unit Tests
+## 3. Test Collection Check
 
 ```
-pytest --cov=recipebrain --cov-report=term-missing
+pytest --collect-only -q
 ```
 
-All tests must pass. Report coverage summary.
+Verify there are no collection errors (missing fixtures, bad imports) and no `PytestCollectionWarning`. If any are found, fix them before proceeding.
 
-## 4. Smoke Test
+## 4. Unit Tests
+
+```
+pytest --cov=recipebrain --cov-report=term-missing -W error::pytest.PytestCollectionWarning
+```
+
+All tests must pass with zero errors and zero collection warnings. Report coverage summary.
+
+## 5. Smoke Test
 
 Verify the package is importable and CLI entry point works:
 
@@ -46,7 +54,7 @@ If the MCP server module is available, also verify it loads without error:
 python -c "from recipebrain.mcp_server import mcp; print(f'{len(mcp._tool_manager._tools)} tools registered')"
 ```
 
-## 5. Skills Sync Check
+## 6. Skills Sync Check
 
 Verify skills are in sync:
 
