@@ -134,7 +134,7 @@ class Settings:
         if "mcp" in data:
             kwargs["mcp"] = McpConfig(**data["mcp"])
 
-        return cls(**kwargs)
+        return cls(**kwargs)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

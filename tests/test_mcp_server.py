@@ -27,7 +27,7 @@ def output_dir(tmp_path: Path) -> Path:
         "source_external_id": ["r1", "r2", "r3"],
         "source_url": ["http://x/1", "http://x/2", "http://x/3"],
         "title": ["Zürcher Geschnetzeltes", "Rösti", "Fondue"],
-        "title_normalised": ["zürcher geschnetzeltes", "rösti", "fondue"],
+        "title_normalised": ["zurcher geschnetzeltes", "rosti", "fondue"],
         "language": ["de", "de", "de"],
         "description": ["Classic dish", "Potato dish", "Cheese dish"],
         "servings": [4, 2, 4],
@@ -187,6 +187,14 @@ class TestFindRecipe:
             result = find_recipe(max_total_minutes=30)
         assert "Rösti" in result
         assert "Geschnetzeltes" not in result
+
+    def test_find_by_query_with_diacritics(self, output_dir: Path) -> None:
+        from recipebrain.mcp_server import find_recipe
+
+        with _patch_output(output_dir):
+            result = find_recipe(query="rösti")
+        # "rösti" normalises to "rosti" which matches title_normalised "rosti"
+        assert "Rösti" in result
 
     def test_find_no_results(self, output_dir: Path) -> None:
         from recipebrain.mcp_server import find_recipe

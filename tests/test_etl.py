@@ -15,7 +15,7 @@ from recipebrain.etl import (
     _run_source,
     run_etl,
 )
-from recipebrain.settings import PathsConfig, Settings
+from recipebrain.settings import PathsConfig, Settings, SourceConfig
 from recipebrain.sources.base import RawRecipe, SourceAdapter
 from recipebrain.writer import read_table, write_table
 
@@ -251,20 +251,28 @@ class TestRunSourceLimit:
 
 
 class TestGetSourceAdapters:
+    def _all_enabled_settings(self) -> Settings:
+        """Return settings with all sources explicitly enabled."""
+        all_sources = {
+            k: SourceConfig(enabled=True)
+            for k in ("bettybossi", "fooby", "migusto", "swissmilk", "schweizerfleisch")
+        }
+        return Settings(sources=all_sources)
+
     def test_all_four_adapters_registered(self):
-        settings = Settings.load(None)
+        settings = self._all_enabled_settings()
         adapters = _get_source_adapters(settings, source_filter=None)
         keys = {a.key for a in adapters}
         assert keys == {"bettybossi", "fooby", "migusto", "swissmilk", "schweizerfleisch"}
 
     def test_filter_returns_single(self):
-        settings = Settings.load(None)
+        settings = self._all_enabled_settings()
         adapters = _get_source_adapters(settings, source_filter="swissmilk")
         assert len(adapters) == 1
         assert adapters[0].key == "swissmilk"
 
     def test_filter_unknown_returns_empty(self):
-        settings = Settings.load(None)
+        settings = self._all_enabled_settings()
         adapters = _get_source_adapters(settings, source_filter="nonexistent")
         assert adapters == []
 

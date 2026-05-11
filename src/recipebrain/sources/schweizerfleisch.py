@@ -193,7 +193,7 @@ def _parse_recipe_html(html_text: str, source_url: str, language: str) -> RawRec
     description = ""
     meta = tree.css_first('meta[name="description"]')
     if meta:
-        description = meta.attributes.get("content", "").strip()
+        description = (meta.attributes.get("content") or "").strip()
 
     # Ingredients
     ingredients = _extract_ingredients(tree)
@@ -240,7 +240,7 @@ def _extract_ingredients(tree: HTMLParser) -> list[str]:
 
     # Primary: extract from data-react-props JSON
     for node in tree.css("[data-react-props]"):
-        props_raw = node.attributes.get("data-react-props", "")
+        props_raw = node.attributes.get("data-react-props") or ""
         props_decoded = html_mod.unescape(props_raw)
         try:
             data = json.loads(props_decoded)
@@ -328,7 +328,7 @@ def _extract_images(tree: HTMLParser) -> list[str]:
 
     # Fallback: img[data-src] (lazy-loaded images)
     for img in tree.css("img[data-src]"):
-        src = img.attributes.get("data-src", "")
+        src = img.attributes.get("data-src") or ""
         if src and "/sites/" in src and "/icon" not in src:
             full_url = f"https://schweizerfleisch.ch{src}" if src.startswith("/") else src
             if full_url not in images:
@@ -337,7 +337,7 @@ def _extract_images(tree: HTMLParser) -> list[str]:
 
     # Last resort: img[src]
     for img in tree.css("img[src]"):
-        src = img.attributes.get("src", "")
+        src = img.attributes.get("src") or ""
         if src and ("/sites/" in src or "/media/" in src) and src not in images:
             if "/sprites/" not in src and "/icon" not in src:
                 images.append(src)
@@ -358,7 +358,7 @@ def _extract_yield(tree: HTMLParser) -> str:
     """Extract serving/yield information from data-react-props or HTML."""
     # Try data-react-props first
     for node in tree.css("[data-react-props]"):
-        props_raw = node.attributes.get("data-react-props", "")
+        props_raw = node.attributes.get("data-react-props") or ""
         props_decoded = html_mod.unescape(props_raw)
         try:
             data = json.loads(props_decoded)

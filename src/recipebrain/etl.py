@@ -60,7 +60,7 @@ def _get_source_adapters(settings: Settings, source_filter: str | None) -> list[
         source_cfg = settings.sources.get(key)
         if source_cfg and not source_cfg.enabled:
             continue
-        adapters.append(adapter_cls(settings))
+        adapters.append(adapter_cls(settings))  # type: ignore[call-arg]
 
     return adapters
 

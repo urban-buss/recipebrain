@@ -48,7 +48,7 @@ class EventCollector:
             items = list(self._events)
         return items[-n:]
 
-    def stats(self) -> dict[str, object]:
+    def stats(self) -> dict[str, int | float]:
         """Return summary statistics across all recorded events."""
         with self._lock:
             items = list(self._events)

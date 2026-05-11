@@ -155,7 +155,7 @@ def find_recipe(
         params: list[object] = []
         if query:
             conditions.append("title_normalised LIKE ?")
-            params.append(f"%{query.lower()}%")
+            params.append(f"%{normalise_title(query)}%")
         if language:
             conditions.append("language = ?")
             params.append(language)
@@ -1245,7 +1245,7 @@ def add_recipe(
         elif cook_minutes is not None:
             total = cook_minutes
 
-        recipe_row = {
+        recipe_row: dict[str, object] = {
             "id": next_id,
             "source_id": source_id,
             "source_external_id": f"own-{next_id}",

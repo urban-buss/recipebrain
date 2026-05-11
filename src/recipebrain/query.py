@@ -61,10 +61,10 @@ def invalidate_connection(output_dir: Path | None = None) -> None:
             _conn_cache.clear()
         else:
             resolved = output_dir.resolve()
-            conn = _conn_cache.pop(resolved, None)
-            if conn is not None:
+            removed = _conn_cache.pop(resolved, None)
+            if removed is not None:
                 try:
-                    conn.close()
+                    removed.close()
                 except Exception:
                     pass
 
