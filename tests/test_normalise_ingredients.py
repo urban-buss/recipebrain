@@ -189,3 +189,11 @@ class TestSeedCatalogue:
     def test_all_items_are_canonical(self) -> None:
         for item in SEED_CATALOGUE:
             assert isinstance(item, CanonicalIngredient)
+
+
+class TestShimImport:
+    def test_import_from_flat_module(self):
+        from recipebrain.normalise_ingredients import normalise_ingredient as fn
+
+        assert callable(fn)
+        assert fn("Pouletbrust") == "chicken-breast"

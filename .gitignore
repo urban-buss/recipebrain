@@ -37,9 +37,13 @@ src/recipebrain/skills/*
 
 # Agent-generated issue tracking
 .github/issues/
+issues/
 
 # Memory system (matches cellarbrain convention)
 .memories/
+
+# Generated release-test prompts (versioned per release)
+.prompts/
 
 # Editor
 .idea/

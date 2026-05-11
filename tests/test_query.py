@@ -6,6 +6,7 @@ import pytest
 
 from recipebrain.query import (
     DataStaleError,
+    QueryEngine,
     QueryError,
     create_connection,
     execute_query,
@@ -244,3 +245,43 @@ class TestSearchRecipes:
         self._seed_recipes(tmp_path)
         results = search_recipes(tmp_path, limit=2)
         assert len(results) == 2
+
+
+class TestQueryEngine:
+    def test_importable(self):
+        from recipebrain.query import QueryEngine
+
+        assert QueryEngine is not None
+
+    def test_execute_delegates(self, tmp_path):
+        write_table("recipes", [{"id": 1, "title": "Pasta"}], tmp_path)
+        engine = QueryEngine(tmp_path)
+        results = engine.execute("SELECT id, title FROM recipes")
+        assert results == [{"id": 1, "title": "Pasta"}]
+
+    def test_search_delegates(self, tmp_path):
+        write_table(
+            "recipes",
+            [
+                {"id": 1, "title": "Pasta", "title_normalised": "pasta", "language": "de"},
+                {"id": 2, "title": "Risotto", "title_normalised": "risotto", "language": "de"},
+            ],
+            tmp_path,
+        )
+        engine = QueryEngine(tmp_path)
+        results = engine.search(query="pasta")
+        assert len(results) == 1
+        assert results[0]["title"] == "Pasta"
+
+    def test_invalidate_clears_cache(self, tmp_path):
+        write_table("recipes", [{"id": 1, "title": "Pasta"}], tmp_path)
+        engine = QueryEngine(tmp_path)
+        engine.execute("SELECT * FROM recipes")
+        engine.invalidate()
+        # Should still work after invalidation
+        results = engine.execute("SELECT * FROM recipes")
+        assert len(results) == 1
+
+    def test_output_dir_property(self, tmp_path):
+        engine = QueryEngine(tmp_path)
+        assert engine.output_dir == tmp_path

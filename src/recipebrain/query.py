@@ -20,6 +20,7 @@ from recipebrain.writer import SCHEMAS, compute_schema_hash, read_schema_version
 
 __all__ = [
     "DataStaleError",
+    "QueryEngine",
     "QueryError",
     "create_connection",
     "execute_query",
@@ -230,3 +231,57 @@ def search_recipes(
         return [dict(zip(columns, row, strict=False)) for row in rows]
     except duckdb.Error as exc:
         raise QueryError(f"Search failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Class-based API
+# ---------------------------------------------------------------------------
+
+
+class QueryEngine:
+    """Convenience wrapper around the functional query API.
+
+    Binds an *output_dir* once so callers don't have to pass it repeatedly.
+
+    Examples:
+        >>> engine = QueryEngine(Path("output"))
+        >>> engine.execute("SELECT * FROM recipes LIMIT 5")
+        [{'id': 1, ...}, ...]
+    """
+
+    def __init__(self, output_dir: Path) -> None:
+        self._output_dir = Path(output_dir)
+
+    @property
+    def output_dir(self) -> Path:
+        return self._output_dir
+
+    def execute(
+        self,
+        sql: str,
+        *,
+        limit: int | None = None,
+        params: list | None = None,
+    ) -> list[dict]:
+        """Validate and execute a read-only SQL query.
+
+        Delegates to :func:`execute_query`.
+        """
+        return execute_query(sql, self._output_dir, limit=limit, params=params)
+
+    def search(
+        self,
+        *,
+        query: str | None = None,
+        language: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Search recipes by text and/or language.
+
+        Delegates to :func:`search_recipes`.
+        """
+        return search_recipes(self._output_dir, query=query, language=language, limit=limit)
+
+    def invalidate(self) -> None:
+        """Invalidate the cached connection for this output directory."""
+        invalidate_connection(self._output_dir)
