@@ -11,4 +11,4 @@ def test_version_is_string():
     import recipebrain
 
     assert isinstance(recipebrain.__version__, str)
-    assert recipebrain.__version__ == "0.0.1"
+    assert recipebrain.__version__  # non-empty

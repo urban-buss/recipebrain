@@ -151,3 +151,14 @@ class TestEdgeCases:
         result = parse_ingredient_line("1 Packung Blätterteig")
         assert result.unit == "Packung"
         assert result.ingredient == "Blätterteig"
+
+
+class TestShimImport:
+    def test_import_from_flat_module(self):
+        from recipebrain.parse_ingredient_line import parse_ingredient_line as fn
+
+        assert callable(fn)
+        result = fn("200 g Mehl")
+        assert result.quantity == 200.0
+        assert result.unit == "g"
+        assert result.ingredient == "Mehl"

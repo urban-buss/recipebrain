@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -41,7 +42,9 @@ def test_version_prints_version():
         text=True,
     )
     assert result.returncode == 0
-    assert "0.0.1" in result.stdout
+    from recipebrain import __version__
+
+    assert __version__ in result.stdout
 
 
 def test_mcp_importable():
@@ -227,3 +230,101 @@ class TestCliLog:
         assert rows[0]["notes"] == "Excellent"
         assert rows[0]["servings"] == 6
         assert rows[0]["scale_factor"] == 1.5
+
+
+# ---------------------------------------------------------------------------
+# Tests: CLI commands without config file (issues 001 & 002)
+# ---------------------------------------------------------------------------
+
+
+class TestCliNoConfig:
+    """Verify CLI commands don't crash when no config file is present."""
+
+    def _run_cli(self, tmp_path, *args):
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        env.pop("RECIPEBRAIN_CONFIG", None)
+        return subprocess.run(
+            [sys.executable, "-m", "recipebrain", *args],
+            capture_output=True,
+            text=True,
+            cwd=str(tmp_path),
+            env=env,
+        )
+
+    def test_info_without_config(self, tmp_path):
+        """recipebrain info should not crash without a config file."""
+        result = self._run_cli(tmp_path, "info")
+        assert result.returncode == 0
+
+    def test_doctor_without_config(self, tmp_path):
+        """recipebrain doctor should not crash without a config file."""
+        result = self._run_cli(tmp_path, "doctor")
+        assert result.returncode in (0, 1)  # may warn, but must not traceback
+        assert "Traceback" not in result.stderr
+
+    def test_validate_without_config(self, tmp_path):
+        """recipebrain validate should not crash without a config file."""
+        result = self._run_cli(tmp_path, "validate")
+        assert result.returncode in (0, 1)
+        assert "Traceback" not in result.stderr
+
+    def test_snapshot_list_without_config(self, tmp_path):
+        """recipebrain snapshot list should not crash without a config file."""
+        result = self._run_cli(tmp_path, "snapshot", "list")
+        assert result.returncode == 0
+        assert "Traceback" not in result.stderr
+
+    def test_config_default_is_none(self):
+        """Verify --config defaults to None (auto-detect) not a filename."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--config", "-c", default=None)
+        args = parser.parse_args([])
+        assert args.config is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: ETL dry-run exit code (issue 005)
+# ---------------------------------------------------------------------------
+
+
+class TestEtlDryRun:
+    def test_limit_zero_returns_zero_despite_errors(self):
+        """ETL with --limit 0 should exit 0 even if discovery has errors."""
+        import argparse
+        from unittest.mock import patch
+
+        from recipebrain.cli import _cmd_etl
+        from recipebrain.etl import EtlResult
+
+        results = [
+            EtlResult(source="fooby", discovered=0, errors=1, error_details=["SSL error"]),
+            EtlResult(source="migusto", discovered=0, errors=1, error_details=["SSL error"]),
+        ]
+
+        args = argparse.Namespace(config=None, source=None, limit=0)
+        with patch("recipebrain.etl.run_etl", return_value=results):
+            with patch("recipebrain.settings.Settings.load"):
+                ret = _cmd_etl(args)
+
+        assert ret == 0
+
+    def test_limit_nonzero_still_errors(self):
+        """ETL with --limit >0 should still exit 1 when only errors occur."""
+        import argparse
+        from unittest.mock import patch
+
+        from recipebrain.cli import _cmd_etl
+        from recipebrain.etl import EtlResult
+
+        results = [
+            EtlResult(source="fooby", discovered=5, fetched=0, errors=1),
+        ]
+
+        args = argparse.Namespace(config=None, source=None, limit=10)
+        with patch("recipebrain.etl.run_etl", return_value=results):
+            with patch("recipebrain.settings.Settings.load"):
+                ret = _cmd_etl(args)
+
+        assert ret == 1

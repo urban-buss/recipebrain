@@ -35,6 +35,11 @@ def _cmd_etl(args: argparse.Namespace) -> int:
             print(f"    ! {detail}")
 
     total_errors = sum(r.errors for r in results)
+
+    # With --limit 0 (dry run), discovery-only errors are non-fatal
+    if args.limit == 0:
+        return 0
+
     return 1 if total_errors > 0 and all(r.fetched == 0 for r in results) else 0
 
 
@@ -213,8 +218,8 @@ def main() -> int:
     parser.add_argument(
         "--config",
         "-c",
-        default="recipebrain.toml",
-        help="Path to config file (default: recipebrain.toml)",
+        default=None,
+        help="Path to config file (default: auto-detect)",
     )
 
     subparsers = parser.add_subparsers(dest="command")
