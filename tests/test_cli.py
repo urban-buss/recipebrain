@@ -42,7 +42,9 @@ def test_version_prints_version():
         text=True,
     )
     assert result.returncode == 0
-    assert "0.0.1" in result.stdout
+    from recipebrain import __version__
+
+    assert __version__ in result.stdout
 
 
 def test_mcp_importable():
