@@ -1,0 +1,70 @@
+# recipebrain.toml — configuration for the recipebrain CLI and MCP server
+# ─────────────────────────────────────────────────────────────────────────────
+# All values shown are the built-in defaults.
+# To override, create `recipebrain.local.toml` (gitignored) with only the
+# sections/keys you want to change. Secrets go there too.
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+# Where ETL output (Parquet files) and dossiers are stored.
+[paths]
+output_dir = "output"
+dossier_dir = "dossiers/recipes"
+inbox_dir = "inbox"
+snapshot_dir = "snapshots"
+
+# ── Scraping ───────────────────────────────────────────────────────────────────
+# Politeness settings for all HTTP requests to recipe/promotion sites.
+[scraping]
+rate_limit_seconds = 2.0
+user_agent = "recipebrain/0.0.1 (personal use; +https://github.com/<owner>/recipebrain)"
+respect_robots_txt = true
+timeout_seconds = 30
+
+# ── Sources ────────────────────────────────────────────────────────────────────
+# Enable/disable individual recipe sources. Each key maps to a SourceAdapter.
+[sources.bettybossi]
+enabled = true
+language = "de"
+
+[sources.fooby]
+enabled = true
+language = "de"
+
+[sources.migusto]
+enabled = true
+language = "de"
+
+[sources.swissmilk]
+enabled = false
+language = "de"
+
+[sources.schweizerfleisch]
+enabled = false
+language = "de"
+
+# ── Promotions ─────────────────────────────────────────────────────────────────
+# Promotion data sources (weekly retailer specials).
+[promotions]
+enabled = true
+adapter = "profital"
+refresh_interval_hours = 168  # weekly
+
+# ── Pantry ─────────────────────────────────────────────────────────────────────
+# Pantry tracking configuration.
+[pantry]
+expiry_warning_days = 3
+
+# ── Cellarbrain ────────────────────────────────────────────────────────────────
+# Cross-server interop with cellarbrain (wine pairing).
+# The chat host orchestrates both MCP servers — this section configures
+# the server-side bridge fallback (optional).
+[cellarbrain]
+enabled = false
+# mcp_endpoint = "stdio"  # or "http://localhost:8001" if using SSE
+
+# ── MCP ────────────────────────────────────────────────────────────────────────
+# MCP server settings.
+[mcp]
+transport = "stdio"
+# host = "localhost"
+# port = 8002
