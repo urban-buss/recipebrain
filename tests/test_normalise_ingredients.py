@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from recipebrain.normalise.ingredients import (
+    CATALOGUE,
     SEED_CATALOGUE,
     CanonicalIngredient,
     _depluralize,
@@ -78,6 +79,24 @@ class TestNormaliseIngredient:
 
     def test_whitespace_returns_none(self) -> None:
         assert normalise_ingredient("   ") is None
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("200g Butter", "butter"),
+            ("200 g Butter", "butter"),
+            ("1.5 kg Kartoffeln", "potato"),
+            ("2 EL Olivenöl", "olive-oil"),
+            ("1 TL Salz", "salt"),
+            ("3 dl Rahm", "cream"),
+            ("100ml Kokosmilch", "coconut-milk"),
+            ("½ Bund Petersilie", "parsley"),
+            ("1 Prise Muskatnuss", "nutmeg"),
+        ],
+    )
+    def test_quantity_unit_prefix_stripped(self, raw: str, expected: str) -> None:
+        """Regression test for issue #016: inputs with quantity+unit prefixes."""
+        assert normalise_ingredient(raw) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -350,5 +369,16 @@ class TestCatalogueSize:
     """Verify the catalogue is large enough to meet the >80% resolution target."""
 
     def test_minimum_catalogue_size(self) -> None:
-        """Catalogue should have at least 200 entries (target: ~250)."""
-        assert len(SEED_CATALOGUE) >= 200
+        """Catalogue should have at least 280 entries per v0.0.6 spec."""
+        assert len(SEED_CATALOGUE) >= 280
+
+    def test_catalogue_alias(self) -> None:
+        """CATALOGUE should be an alias for SEED_CATALOGUE."""
+        assert CATALOGUE is SEED_CATALOGUE
+
+    def test_required_keys_present(self) -> None:
+        """Keys required by the spec must be in the catalogue."""
+        keys = {item.key for item in SEED_CATALOGUE}
+        assert "harissa" in keys
+        assert "stock-beef" in keys
+        assert "pomegranate-seeds" in keys

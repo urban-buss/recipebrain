@@ -47,6 +47,17 @@ def output_dir(tmp_path: Path) -> Path:
         "updated_at": [datetime.datetime(2024, 1, 1)] * 3,
         "content_hash": ["h1", "h2", "h3"],
         "status": ["active", "active", "active"],
+        "primary_protein": ["veal", None, "cheese"],
+        "taste_profile": ["savoury", "savoury", "savoury"],
+        "weight_class": ["heavy", "light", "medium"],
+        "cooking_method": ["fried", "fried", None],
+        "dietary_flags": [[], ["vegetarian", "vegan"], ["vegetarian"]],
+        "food_groups": [["veal", "fried", "heavy"], ["light"], ["cheese", "medium"]],
+        "computed_tags": [
+            ["heavy", "main", "medium", "savoury", "swiss", "veal"],
+            ["easy", "light", "savoury", "side", "swiss", "vegan", "vegetarian"],
+            ["cheese", "easy", "main", "savoury", "swiss", "vegetarian"],
+        ],
     }
     table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
     pq.write_table(table, tmp_path / "recipes.parquet")

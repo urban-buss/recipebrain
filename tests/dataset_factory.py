@@ -59,6 +59,13 @@ def make_recipe(**overrides: object) -> dict:
         "updated_at": datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
         "content_hash": "abc123",
         "status": "active",
+        "primary_protein": None,
+        "taste_profile": "savoury",
+        "weight_class": "medium",
+        "cooking_method": None,
+        "dietary_flags": [],
+        "food_groups": [],
+        "computed_tags": [],
     }
     defaults.update(overrides)
     return defaults

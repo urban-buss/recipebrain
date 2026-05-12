@@ -18,6 +18,7 @@ from recipebrain.transform import (
     build_recipe_ingredients_rows,
     build_recipe_row,
     build_recipe_steps_rows,
+    extract_classification,
     normalise_title,
 )
 
@@ -66,6 +67,14 @@ class TestBuildRecipeRow:
         assert row["content_hash"] is not None
         assert row["scraped_at"] is not None
         assert row["updated_at"] is not None
+        # Computed tag columns present (values depend on ingredient resolution)
+        assert "primary_protein" in row
+        assert "taste_profile" in row
+        assert "weight_class" in row
+        assert "cooking_method" in row
+        assert isinstance(row["dietary_flags"], list)
+        assert isinstance(row["food_groups"], list)
+        assert isinstance(row["computed_tags"], list)
 
     def test_missing_optional_fields(self):
         raw = RawRecipe(title="Minimal")
@@ -82,6 +91,24 @@ class TestBuildRecipeRow:
         assert row["primary_image_url"] is None
         assert row["original_keywords"] == []
         assert row["description"] == ""
+        # Computed tags default when no ingredients provided
+        assert row["primary_protein"] is None
+        assert row["taste_profile"] == "savoury"
+        assert isinstance(row["dietary_flags"], list)
+        assert isinstance(row["computed_tags"], list)
+
+    def test_computed_tags_with_ingredients(self):
+        raw = _full_raw_recipe()
+        ing_rows = build_recipe_ingredients_rows(
+            recipe_id=42,
+            ingredients_raw=raw.ingredients_raw,
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=42, ingredient_rows=ing_rows)
+        # With actual ingredients resolved, computed tags should be populated
+        assert isinstance(row["computed_tags"], list)
+        assert isinstance(row["food_groups"], list)
+        assert row["taste_profile"] in ("sweet", "savoury", "sweet-savoury")
+        assert row["weight_class"] in ("light", "medium", "heavy")
 
     def test_total_minutes_with_only_prep(self):
         raw = RawRecipe(title="Test", prep_time="PT20M")
@@ -396,3 +423,95 @@ class TestInferDifficulty:
 
     def test_no_data_returns_none(self):
         assert _infer_difficulty("", None) is None
+
+
+class TestExtractClassification:
+    def test_recipe_category_maps_to_course(self):
+        result = extract_classification({"recipeCategory": "Hauptgericht"})
+        assert result == {"course": "main", "cuisine": None, "difficulty": None}
+
+    def test_category_key_also_accepted(self):
+        result = extract_classification({"category": "Dessert"})
+        assert result["course"] == "dessert"
+
+    def test_recipe_category_takes_priority_over_category(self):
+        result = extract_classification({"recipeCategory": "Hauptgericht", "category": "Dessert"})
+        assert result["course"] == "main"
+
+    def test_recipe_cuisine_normalised(self):
+        result = extract_classification({"recipeCuisine": "Swiss"})
+        assert result == {"course": None, "cuisine": "swiss", "difficulty": None}
+
+    def test_cuisine_key_also_accepted(self):
+        result = extract_classification({"cuisine": "Italian"})
+        assert result["cuisine"] == "italian"
+
+    def test_explicit_difficulty(self):
+        result = extract_classification({"difficulty": "Einfach"})
+        assert result["difficulty"] == "easy"
+
+    def test_difficulty_inferred_from_total_minutes(self):
+        result = extract_classification({"total_minutes": 90})
+        assert result["difficulty"] == "advanced"
+
+    def test_explicit_difficulty_beats_total_minutes(self):
+        result = extract_classification({"difficulty": "easy", "total_minutes": 120})
+        assert result["difficulty"] == "easy"
+
+    def test_keyword_fallback_for_difficulty(self):
+        result = extract_classification({"keywords": ["einfach", "Schweizer Küche"]})
+        assert result["difficulty"] == "easy"
+
+    def test_keyword_fallback_for_course(self):
+        result = extract_classification({"keywords": ["Dessert", "süss"]})
+        assert result["course"] == "dessert"
+
+    def test_explicit_category_beats_keyword(self):
+        result = extract_classification(
+            {
+                "recipeCategory": "Hauptgericht",
+                "keywords": ["Dessert"],
+            }
+        )
+        assert result["course"] == "main"
+
+    def test_explicit_difficulty_beats_keyword(self):
+        result = extract_classification(
+            {
+                "difficulty": "medium",
+                "keywords": ["einfach"],
+            }
+        )
+        assert result["difficulty"] == "medium"
+
+    def test_full_example(self):
+        result = extract_classification(
+            {
+                "recipeCategory": "Hauptgericht",
+                "recipeCuisine": "Swiss",
+                "keywords": ["einfach", "Schweizer Küche"],
+            }
+        )
+        assert result == {"course": "main", "cuisine": "swiss", "difficulty": "easy"}
+
+    def test_empty_dict(self):
+        result = extract_classification({})
+        assert result == {"course": None, "cuisine": None, "difficulty": None}
+
+    def test_empty_strings(self):
+        result = extract_classification(
+            {
+                "recipeCategory": "",
+                "recipeCuisine": "",
+                "difficulty": "",
+            }
+        )
+        assert result == {"course": None, "cuisine": None, "difficulty": None}
+
+    def test_no_keywords_key(self):
+        result = extract_classification({"recipeCategory": "Vorspeise"})
+        assert result["course"] == "starter"
+
+    def test_keywords_none(self):
+        result = extract_classification({"keywords": None})
+        assert result == {"course": None, "cuisine": None, "difficulty": None}
