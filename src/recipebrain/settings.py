@@ -8,7 +8,8 @@ Precedence (highest → lowest):
     2. Environment variable (``RECIPEBRAIN_CONFIG``)
     3. ``recipebrain.local.toml`` (gitignored, personal overrides)
     4. ``recipebrain.toml`` (committed defaults)
-    5. Built-in defaults (in this module)
+    5. User config pointer (``~/.config/recipebrain/config-path``)
+    6. Built-in defaults (in this module)
 
 Relative paths in the TOML are anchored to the config file's parent directory
 at load time — never resolved against the process CWD.
@@ -142,6 +143,11 @@ class Settings:
 # ---------------------------------------------------------------------------
 
 
+# Well-known user config directory for storing the config-path pointer.
+_USER_CONFIG_DIR = Path.home() / ".config" / "recipebrain"
+_CONFIG_PATH_FILE = _USER_CONFIG_DIR / "config-path"
+
+
 def _resolve_config_path(
     config_path: Path | str | None,
 ) -> Path | None:
@@ -152,6 +158,7 @@ def _resolve_config_path(
         2. ``RECIPEBRAIN_CONFIG`` environment variable
         3. ``recipebrain.local.toml`` in CWD (gitignored overrides)
         4. ``recipebrain.toml`` in CWD (committed defaults)
+        5. User config pointer at ``~/.config/recipebrain/config-path``
     """
     if config_path is not None:
         p = Path(config_path)
@@ -177,7 +184,29 @@ def _resolve_config_path(
     if default.exists():
         return default.resolve()
 
-    return None
+    # Fall back to user-level pointer written by ``recipebrain init``
+    return _read_config_path_pointer()
+
+
+def _read_config_path_pointer() -> Path | None:
+    """Read the config-path pointer file written by ``recipebrain init``.
+
+    Returns the resolved path if the pointer file exists and the target
+    config file is present, otherwise ``None``.
+    """
+    if not _CONFIG_PATH_FILE.is_file():
+        return None
+    try:
+        stored = _CONFIG_PATH_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not stored:
+        return None
+    p = Path(stored)
+    if not p.is_file():
+        logger.debug("Config pointer %s references missing file: %s", _CONFIG_PATH_FILE, p)
+        return None
+    return p.resolve()
 
 
 # ---------------------------------------------------------------------------
