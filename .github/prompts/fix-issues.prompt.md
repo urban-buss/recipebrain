@@ -1,6 +1,6 @@
 ---
 description: "Triage and fix all open issues in the issues/ folder, one by one"
-mode: "agent"
+agent: agent
 ---
 # Fix Issues
 

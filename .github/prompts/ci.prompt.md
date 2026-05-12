@@ -1,6 +1,6 @@
 ---
 description: "Run full CI checks locally: lint, format, typecheck, tests, and smoke-test"
-mode: "agent"
+agent: agent
 ---
 # Local CI
 

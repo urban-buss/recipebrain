@@ -1,6 +1,6 @@
 ---
 description: "Stage changes and create a well-formed conventional commit"
-mode: "agent"
+agent: agent
 ---
 # Commit
 
@@ -65,7 +65,7 @@ Use conventional commit format:
 
 ## 5. Execute
 
-Present the commit message to the user for approval, then run:
+Run the commit directly — do not ask for approval:
 
 ```
 git commit -m "<message>"

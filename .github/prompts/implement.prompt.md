@@ -1,6 +1,6 @@
 ---
 description: "Implement a feature or fix following recipebrain conventions, including tests"
-mode: "agent"
+agent: Plan
 ---
 # Implement
 

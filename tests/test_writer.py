@@ -42,6 +42,7 @@ class TestSchemas:
             "promotions",
             "promotion_ingredient_map",
             "pinned_recipes",
+            "etl_runs",
         }
         assert expected == set(SCHEMAS.keys())
 

@@ -1,6 +1,6 @@
 ---
 description: "Analyse code, architecture, data flow, or issues in the recipebrain codebase"
-mode: "agent"
+agent: agent
 ---
 # Analyse
 

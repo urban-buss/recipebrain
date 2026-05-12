@@ -29,7 +29,16 @@ class ParsedIngredient:
     unit: str | None
     ingredient: str
     prep_note: str | None
+    optional: bool = False
 
+
+# Optional ingredient markers common in Swiss-German recipe text
+_OPTIONAL_MARKERS = re.compile(
+    r"(?:^|\b)"
+    r"(?:optional|nach Belieben|evt(?:l)?\.?|evtl\.?|fakultativ)"
+    r"(?:\b|(?=[\s:,;.])|$)",
+    re.IGNORECASE,
+)
 
 # Unicode fraction map
 _FRACTIONS: dict[str, float] = {
@@ -113,9 +122,27 @@ def parse_ingredient_line(line: str) -> ParsedIngredient:
     if not line:
         raise ValueError("Ingredient line is empty")
 
+    # Detect and strip optional markers before parsing
+    optional = bool(_OPTIONAL_MARKERS.search(line))
+    if optional:
+        line = _OPTIONAL_MARKERS.sub("", line).strip()
+        # Clean up leftover colon/comma after marker removal
+        line = re.sub(r"^[:,]\s*", "", line)
+        line = re.sub(r"\s*[:,]\s*$", "", line)
+        line = re.sub(r"\s{2,}", " ", line).strip()
+
+    if not line:
+        raise ValueError("Ingredient line is empty")
+
     match = _QUANTITY_RE.match(line)
     if not match:
-        return ParsedIngredient(quantity=None, unit=None, ingredient=line, prep_note=None)
+        return ParsedIngredient(
+            quantity=None,
+            unit=None,
+            ingredient=line,
+            prep_note=None,
+            optional=optional,
+        )
 
     whole = match.group("whole")
     frac = match.group("frac")
@@ -135,6 +162,7 @@ def parse_ingredient_line(line: str) -> ParsedIngredient:
         unit=unit,
         ingredient=ingredient.strip(),
         prep_note=prep_note.strip() if prep_note else None,
+        optional=optional,
     )
 
 

@@ -1,6 +1,6 @@
 ---
 description: "Prepare a patch release: CI check, version bump, squash merge, and generate PyPI test prompt"
-mode: "agent"
+agent: agent
 ---
 # Release Patch
 

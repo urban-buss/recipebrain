@@ -22,7 +22,7 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from recipebrain.settings import Settings
-from recipebrain.sources.base import RawRecipe, SourceAdapter
+from recipebrain.sources.base import RawIngredientGroup, RawRecipe, SourceAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +197,7 @@ def _parse_recipe_html(html_text: str, source_url: str, language: str) -> RawRec
 
     # Ingredients
     ingredients = _extract_ingredients(tree)
+    ingredient_groups = _extract_ingredient_groups(tree)
 
     # Steps
     steps = _extract_steps(tree)
@@ -218,6 +219,7 @@ def _parse_recipe_html(html_text: str, source_url: str, language: str) -> RawRec
         title=title,
         description=description,
         ingredients_raw=ingredients,
+        ingredient_groups=ingredient_groups,
         steps_raw=steps,
         yield_amount=yield_amount,
         prep_time=prep_time,
@@ -279,6 +281,57 @@ def _extract_ingredients(tree: HTMLParser) -> list[str]:
             ingredients.append(text)
 
     return ingredients
+
+
+def _extract_ingredient_groups(tree: HTMLParser) -> list[RawIngredientGroup]:
+    """Extract ingredients preserving group structure from Schweizer Fleisch HTML.
+
+    The site embeds ingredient data in data-react-props JSON with an
+    ingredientsLists array. Each list entry may have a title (group label)
+    and a list of ingredients.
+    """
+    groups: list[RawIngredientGroup] = []
+
+    for node in tree.css("[data-react-props]"):
+        props_raw = node.attributes.get("data-react-props") or ""
+        props_decoded = html_mod.unescape(props_raw)
+        try:
+            data = json.loads(props_decoded)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        if "ingredientsLists" not in data:
+            continue
+
+        for ing_list in data["ingredientsLists"]:
+            entity = ing_list.get("entity", {})
+            label = (entity.get("title") or entity.get("name") or "").strip() or None
+            items: list[str] = []
+            for ing in entity.get("ingredients", []):
+                ie = ing.get("entity", {})
+                amount = ie.get("amount", "")
+                quantity = ie.get("quantity")
+                qty_name = ""
+                if isinstance(quantity, dict):
+                    qty_entity = quantity.get("entity", {})
+                    if isinstance(qty_entity, dict):
+                        qty_name = qty_entity.get("shortForm") or qty_entity.get("name") or ""
+                title = ie.get("title", "")
+                parts = [p for p in (amount, qty_name, title) if p]
+                line = " ".join(parts)
+                if line:
+                    items.append(line)
+            if items:
+                groups.append(RawIngredientGroup(label=label, items=items))
+
+        if groups:
+            return groups
+
+    # Fallback: wrap flat extraction in a single group
+    flat = _extract_ingredients(tree)
+    if flat:
+        return [RawIngredientGroup(label=None, items=flat)]
+    return []
 
 
 def _extract_steps(tree: HTMLParser) -> list[str]:

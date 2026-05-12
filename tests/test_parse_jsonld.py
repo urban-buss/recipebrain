@@ -108,6 +108,31 @@ class TestParseRecipe:
         assert recipe.cook_time == ""
         assert recipe.image_urls == []
         assert recipe.keywords == []
+        assert recipe.category == ""
+        assert recipe.cuisine == ""
+
+    def test_extracts_recipe_category(self):
+        data = {
+            "name": "Test",
+            "recipeCategory": "Hauptgericht",
+        }
+        recipe = parse_recipe(data)
+        assert recipe.category == "Hauptgericht"
+
+    def test_extracts_recipe_cuisine(self):
+        data = {
+            "name": "Test",
+            "recipeCuisine": "Swiss",
+        }
+        recipe = parse_recipe(data)
+        assert recipe.cuisine == "Swiss"
+
+    def test_category_and_cuisine_from_fixture(self):
+        html = FIXTURES.joinpath("fooby_recipe.html").read_text(encoding="utf-8")
+        data = extract_recipes(html)[0]
+        recipe = parse_recipe(data, source_url="https://fooby.ch/de/rezepte/test")
+        assert recipe.category == "Hauptgericht"
+        assert recipe.cuisine == "Swiss"
 
     def test_handles_string_instructions(self):
         data = {

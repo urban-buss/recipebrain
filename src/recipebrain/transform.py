@@ -20,7 +20,128 @@ from datetime import UTC, datetime
 
 from recipebrain.normalise.ingredients import get_ingredient_id
 from recipebrain.parse.ingredient_line import parse_ingredient_line
-from recipebrain.sources.base import RawRecipe
+from recipebrain.sources.base import RawIngredientGroup, RawRecipe
+
+# ---------------------------------------------------------------------------
+# Classification normalisation
+# ---------------------------------------------------------------------------
+
+_COURSE_MAP: dict[str, str] = {
+    "hauptgericht": "main",
+    "main course": "main",
+    "main dish": "main",
+    "main": "main",
+    "vorspeise": "starter",
+    "starter": "starter",
+    "appetizer": "starter",
+    "entrée": "starter",
+    "dessert": "dessert",
+    "nachspeise": "dessert",
+    "süsses": "dessert",
+    "beilage": "side",
+    "side dish": "side",
+    "side": "side",
+    "bake": "bake",
+    "backen": "bake",
+    "gebäck": "bake",
+    "getränk": "drink",
+    "drink": "drink",
+    "beverage": "drink",
+    "smoothie": "drink",
+}
+
+_DIFFICULTY_MAP: dict[str, str] = {
+    "easy": "easy",
+    "einfach": "easy",
+    "leicht": "easy",
+    "facile": "easy",
+    "medium": "medium",
+    "mittel": "medium",
+    "normal": "medium",
+    "moyen": "medium",
+    "advanced": "advanced",
+    "schwer": "advanced",
+    "schwierig": "advanced",
+    "difficile": "advanced",
+}
+
+
+def _normalise_course(raw: str) -> str | None:
+    """Map a raw category string to a normalised course enum value.
+
+    Examples:
+        >>> _normalise_course("Hauptgericht")
+        'main'
+        >>> _normalise_course("Dessert")
+        'dessert'
+        >>> _normalise_course("")
+    """
+    if not raw:
+        return None
+    return _COURSE_MAP.get(raw.strip().lower())
+
+
+def _normalise_cuisine(raw: str) -> str | None:
+    """Normalise a cuisine string to lowercase.
+
+    Examples:
+        >>> _normalise_cuisine("Swiss")
+        'swiss'
+        >>> _normalise_cuisine("Italian")
+        'italian'
+        >>> _normalise_cuisine("")
+    """
+    if not raw:
+        return None
+    return raw.strip().lower()
+
+
+def _normalise_difficulty(raw: str) -> str | None:
+    """Map a raw difficulty string to a normalised difficulty enum value.
+
+    Examples:
+        >>> _normalise_difficulty("Einfach")
+        'easy'
+        >>> _normalise_difficulty("medium")
+        'medium'
+        >>> _normalise_difficulty("")
+    """
+    if not raw:
+        return None
+    return _DIFFICULTY_MAP.get(raw.strip().lower())
+
+
+def _infer_difficulty(raw_difficulty: str, total_minutes: int | None) -> str | None:
+    """Resolve difficulty from explicit value or infer from total cook time.
+
+    If raw_difficulty is provided and maps to a known value, use it.
+    Otherwise, infer from total_minutes:
+      - ≤ 30 min → easy
+      - ≤ 60 min → medium
+      - > 60 min → advanced
+
+    Examples:
+        >>> _infer_difficulty("Einfach", 90)
+        'easy'
+        >>> _infer_difficulty("", 25)
+        'easy'
+        >>> _infer_difficulty("", 45)
+        'medium'
+        >>> _infer_difficulty("", 90)
+        'advanced'
+        >>> _infer_difficulty("", None)
+    """
+    explicit = _normalise_difficulty(raw_difficulty)
+    if explicit:
+        return explicit
+    if total_minutes is None:
+        return None
+    if total_minutes <= 30:
+        return "easy"
+    if total_minutes <= 60:
+        return "medium"
+    return "advanced"
+
 
 # ---------------------------------------------------------------------------
 # Public API — row builders
@@ -63,9 +184,9 @@ def build_recipe_row(raw: RawRecipe, source_id: int, recipe_id: int) -> dict:
         "prep_minutes": prep,
         "cook_minutes": cook,
         "total_minutes": total,
-        "difficulty": None,
-        "cuisine": None,
-        "course": None,
+        "difficulty": _infer_difficulty(raw.difficulty, total),
+        "cuisine": _normalise_cuisine(raw.cuisine),
+        "course": _normalise_course(raw.category),
         "primary_image_url": raw.image_urls[0] if raw.image_urls else None,
         "original_keywords": raw.keywords or [],
         "owner_rating": None,
@@ -100,58 +221,86 @@ def build_recipe_steps_rows(recipe_id: int, steps: list[str]) -> list[dict]:
     ]
 
 
-def build_recipe_images_rows(recipe_id: int, image_urls: list[str]) -> list[dict]:
+def build_recipe_images_rows(
+    recipe_id: int,
+    image_urls: list[str],
+    local_paths: list[str | None] | None = None,
+) -> list[dict]:
     """Convert image URL list into dicts matching SCHEMAS["recipe_images"].
 
     Args:
         recipe_id: FK to the recipes table.
         image_urls: Ordered list of image URLs.
+        local_paths: Optional parallel list of local file paths (relative to
+            output dir). Pass ``None`` when images have not been downloaded.
 
     Returns:
         List of dicts, one per image.
     """
+    paths = local_paths or [None] * len(image_urls)
     return [
         {
             "recipe_id": recipe_id,
             "seq": i + 1,
             "url": url,
-            "local_path": None,
+            "local_path": paths[i] if i < len(paths) else None,
             "caption": None,
         }
         for i, url in enumerate(image_urls)
     ]
 
 
-def build_recipe_ingredients_rows(recipe_id: int, ingredients_raw: list[str]) -> list[dict]:
+def build_recipe_ingredients_rows(
+    recipe_id: int,
+    ingredients_raw: list[str] | None = None,
+    *,
+    ingredient_groups: list[RawIngredientGroup] | None = None,
+) -> list[dict]:
     """Convert raw ingredient lines into dicts matching SCHEMAS["recipe_ingredients"].
 
     Parses each line to extract quantity, unit, and prep_note, then attempts
     to link to the canonical ingredient catalogue via ``get_ingredient_id``.
 
+    Accepts either a flat list via ``ingredients_raw`` (backward compat) or
+    structured ``ingredient_groups`` with group labels. When groups are provided,
+    ``group_label`` is populated per-row.
+
     Args:
         recipe_id: FK to the recipes table.
-        ingredients_raw: Ordered list of raw ingredient text lines.
+        ingredients_raw: Flat list of raw ingredient text lines (legacy).
+        ingredient_groups: Structured groups with optional labels.
 
     Returns:
         List of dicts, one per ingredient line.
     """
+    groups: list[RawIngredientGroup]
+    if ingredient_groups:
+        groups = ingredient_groups
+    elif ingredients_raw:
+        groups = [RawIngredientGroup(label=None, items=ingredients_raw)]
+    else:
+        return []
+
     rows: list[dict] = []
-    for i, text in enumerate(ingredients_raw):
-        parsed = parse_ingredient_line(text)
-        ingredient_id = get_ingredient_id(parsed.ingredient) if parsed.ingredient else None
-        rows.append(
-            {
-                "recipe_id": recipe_id,
-                "seq": i + 1,
-                "ingredient_id": ingredient_id,
-                "raw_text": text,
-                "quantity": parsed.quantity,
-                "unit": parsed.unit,
-                "prep_note": parsed.prep_note,
-                "optional": False,
-                "group_label": None,
-            }
-        )
+    seq = 1
+    for group in groups:
+        for text in group.items:
+            parsed = parse_ingredient_line(text)
+            ingredient_id = get_ingredient_id(parsed.ingredient) if parsed.ingredient else None
+            rows.append(
+                {
+                    "recipe_id": recipe_id,
+                    "seq": seq,
+                    "ingredient_id": ingredient_id,
+                    "raw_text": text,
+                    "quantity": parsed.quantity,
+                    "unit": parsed.unit,
+                    "prep_note": parsed.prep_note,
+                    "optional": parsed.optional,
+                    "group_label": group.label,
+                }
+            )
+            seq += 1
     return rows
 
 

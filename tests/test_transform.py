@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from recipebrain.sources.base import RawRecipe
+from recipebrain.sources.base import RawIngredientGroup, RawRecipe
 from recipebrain.transform import (
     _compute_content_hash,
     _extract_external_id,
+    _infer_difficulty,
+    _normalise_course,
+    _normalise_cuisine,
+    _normalise_difficulty,
     _parse_iso_duration,
     _parse_servings,
     build_recipe_images_rows,
@@ -31,6 +35,8 @@ def _full_raw_recipe() -> RawRecipe:
         keywords=["quick", "weeknight"],
         source_url="https://fooby.ch/de/rezepte/pouletbrust-12345",
         language="de",
+        category="Hauptgericht",
+        cuisine="Swiss",
     )
 
 
@@ -51,6 +57,9 @@ class TestBuildRecipeRow:
         assert row["prep_minutes"] == 15
         assert row["cook_minutes"] == 25
         assert row["total_minutes"] == 40
+        assert row["difficulty"] == "medium"  # inferred from 40 min total
+        assert row["cuisine"] == "swiss"
+        assert row["course"] == "main"
         assert row["primary_image_url"] == "https://img.ch/1.jpg"
         assert row["original_keywords"] == ["quick", "weeknight"]
         assert row["status"] == "active"
@@ -67,6 +76,9 @@ class TestBuildRecipeRow:
         assert row["prep_minutes"] is None
         assert row["cook_minutes"] is None
         assert row["total_minutes"] is None
+        assert row["difficulty"] is None
+        assert row["cuisine"] is None
+        assert row["course"] is None
         assert row["primary_image_url"] is None
         assert row["original_keywords"] == []
         assert row["description"] == ""
@@ -104,10 +116,30 @@ class TestBuildRecipeImages:
         assert len(rows) == 2
         assert rows[0]["seq"] == 1
         assert rows[0]["url"] == "https://img.ch/a.jpg"
+        assert rows[0]["local_path"] is None
         assert rows[1]["seq"] == 2
 
     def test_empty_images(self):
         assert build_recipe_images_rows(10, []) == []
+
+    def test_with_local_paths(self):
+        urls = ["https://img.ch/a.jpg", "https://img.ch/b.jpg"]
+        paths = ["images/10_001_abc.jpg", "images/10_002_def.jpg"]
+        rows = build_recipe_images_rows(10, urls, local_paths=paths)
+        assert rows[0]["local_path"] == "images/10_001_abc.jpg"
+        assert rows[1]["local_path"] == "images/10_002_def.jpg"
+
+    def test_with_partial_local_paths(self):
+        urls = ["https://img.ch/a.jpg", "https://img.ch/b.jpg"]
+        paths = ["images/10_001_abc.jpg", None]
+        rows = build_recipe_images_rows(10, urls, local_paths=paths)
+        assert rows[0]["local_path"] == "images/10_001_abc.jpg"
+        assert rows[1]["local_path"] is None
+
+    def test_local_paths_none_defaults_to_null(self):
+        urls = ["https://img.ch/a.jpg"]
+        rows = build_recipe_images_rows(10, urls, local_paths=None)
+        assert rows[0]["local_path"] is None
 
 
 class TestBuildRecipeIngredients:
@@ -139,6 +171,62 @@ class TestBuildRecipeIngredients:
     def test_extracts_prep_note(self):
         rows = build_recipe_ingredients_rows(1, ["200 g Pouletbrust, in Würfeln"])
         assert rows[0]["prep_note"] == "in Würfeln"
+
+    def test_group_label_populated_from_ingredient_groups(self):
+        groups = [
+            RawIngredientGroup(label="Für den Teig", items=["200 g Mehl", "3 Eier"]),
+            RawIngredientGroup(label="Für die Sauce", items=["2 dl Rahm"]),
+        ]
+        rows = build_recipe_ingredients_rows(1, ingredient_groups=groups)
+        assert len(rows) == 3
+        assert rows[0]["group_label"] == "Für den Teig"
+        assert rows[0]["raw_text"] == "200 g Mehl"
+        assert rows[0]["seq"] == 1
+        assert rows[1]["group_label"] == "Für den Teig"
+        assert rows[1]["raw_text"] == "3 Eier"
+        assert rows[1]["seq"] == 2
+        assert rows[2]["group_label"] == "Für die Sauce"
+        assert rows[2]["raw_text"] == "2 dl Rahm"
+        assert rows[2]["seq"] == 3
+
+    def test_group_label_none_when_no_label(self):
+        groups = [
+            RawIngredientGroup(label=None, items=["200 g Mehl", "3 Eier"]),
+        ]
+        rows = build_recipe_ingredients_rows(1, ingredient_groups=groups)
+        assert rows[0]["group_label"] is None
+        assert rows[1]["group_label"] is None
+
+    def test_fallback_to_ingredients_raw_when_no_groups(self):
+        rows = build_recipe_ingredients_rows(1, ["200 g Mehl", "3 Eier"])
+        assert len(rows) == 2
+        assert rows[0]["group_label"] is None
+
+    def test_ingredient_groups_take_priority_over_raw(self):
+        groups = [
+            RawIngredientGroup(label="Teig", items=["200 g Mehl"]),
+        ]
+        rows = build_recipe_ingredients_rows(1, ["ignored"], ingredient_groups=groups)
+        assert len(rows) == 1
+        assert rows[0]["raw_text"] == "200 g Mehl"
+        assert rows[0]["group_label"] == "Teig"
+
+    def test_empty_groups_returns_empty(self):
+        assert build_recipe_ingredients_rows(1, ingredient_groups=[]) == []
+        assert build_recipe_ingredients_rows(1, []) == []
+        assert build_recipe_ingredients_rows(1) == []
+
+    def test_optional_flag_detected(self):
+        rows = build_recipe_ingredients_rows(1, ["evt. 2 dl Rahm"])
+        assert rows[0]["optional"] is True
+
+    def test_optional_flag_false_for_regular(self):
+        rows = build_recipe_ingredients_rows(1, ["200 g Mehl"])
+        assert rows[0]["optional"] is False
+
+    def test_optional_nach_belieben(self):
+        rows = build_recipe_ingredients_rows(1, ["Schnittlauch, nach Belieben"])
+        assert rows[0]["optional"] is True
 
 
 class TestParseIsoDuration:
@@ -232,3 +320,79 @@ class TestParseServings:
     )
     def test_parse(self, yield_str, expected):
         assert _parse_servings(yield_str) == expected
+
+
+class TestNormaliseCourse:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("Hauptgericht", "main"),
+            ("hauptgericht", "main"),
+            ("Main Course", "main"),
+            ("Dessert", "dessert"),
+            ("Vorspeise", "starter"),
+            ("Beilage", "side"),
+            ("Backen", "bake"),
+            ("Getränk", "drink"),
+            ("", None),
+            ("Unknown Category", None),
+        ],
+    )
+    def test_normalise(self, raw, expected):
+        assert _normalise_course(raw) == expected
+
+
+class TestNormaliseCuisine:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("Swiss", "swiss"),
+            ("Italian", "italian"),
+            ("ASIAN", "asian"),
+            ("  French  ", "french"),
+            ("", None),
+        ],
+    )
+    def test_normalise(self, raw, expected):
+        assert _normalise_cuisine(raw) == expected
+
+
+class TestNormaliseDifficulty:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("easy", "easy"),
+            ("Einfach", "easy"),
+            ("medium", "medium"),
+            ("Mittel", "medium"),
+            ("advanced", "advanced"),
+            ("Schwer", "advanced"),
+            ("", None),
+            ("unknown", None),
+        ],
+    )
+    def test_normalise(self, raw, expected):
+        assert _normalise_difficulty(raw) == expected
+
+
+class TestInferDifficulty:
+    def test_explicit_value_takes_priority(self):
+        assert _infer_difficulty("Einfach", 90) == "easy"
+
+    def test_infer_easy_from_time(self):
+        assert _infer_difficulty("", 25) == "easy"
+
+    def test_infer_medium_from_time(self):
+        assert _infer_difficulty("", 45) == "medium"
+
+    def test_infer_advanced_from_time(self):
+        assert _infer_difficulty("", 90) == "advanced"
+
+    def test_boundary_30_is_easy(self):
+        assert _infer_difficulty("", 30) == "easy"
+
+    def test_boundary_60_is_medium(self):
+        assert _infer_difficulty("", 60) == "medium"
+
+    def test_no_data_returns_none(self):
+        assert _infer_difficulty("", None) is None
