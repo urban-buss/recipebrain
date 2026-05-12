@@ -1,6 +1,6 @@
 ---
 description: "Run full E2E MCP testing: install recipebrain, smoke-test MCP server, execute all testing scenarios via tool calls, document defects, and produce a testing report"
-mode: "agent"
+agent: agent
 tools: ["terminal", "file", "search"]
 ---
 # E2E MCP Testing Suite

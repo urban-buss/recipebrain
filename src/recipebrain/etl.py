@@ -7,9 +7,12 @@ running the full pipeline for one or more recipe sources.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
+from recipebrain.images import download_recipe_images
 from recipebrain.query import invalidate_connection
 from recipebrain.settings import Settings
 from recipebrain.snapshot import create_snapshot
@@ -36,6 +39,7 @@ class EtlResult:
     fetched: int = 0
     skipped: int = 0
     errors: int = 0
+    soft_deleted: int = 0
     error_details: list[str] = field(default_factory=list)
 
 
@@ -78,16 +82,55 @@ def _next_recipe_id(output_dir: Path) -> int:
         return 1
 
 
+_SOURCE_METADATA: dict[str, dict] = {
+    "bettybossi": {
+        "id": 1,
+        "display_name": "Betty Bossi",
+        "base_url": "https://www.bettybossi.ch",
+        "language": "de",
+    },
+    "fooby": {
+        "id": 2,
+        "display_name": "Fooby",
+        "base_url": "https://fooby.ch",
+        "language": "de",
+    },
+    "migusto": {
+        "id": 3,
+        "display_name": "Migusto",
+        "base_url": "https://migusto.migros.ch",
+        "language": "de",
+    },
+    "swissmilk": {
+        "id": 4,
+        "display_name": "Swissmilk",
+        "base_url": "https://www.swissmilk.ch",
+        "language": "de",
+    },
+    "schweizerfleisch": {
+        "id": 5,
+        "display_name": "Schweizer Fleisch",
+        "base_url": "https://www.schweizerfleisch.ch",
+        "language": "de",
+    },
+}
+
+
 def _get_source_id(adapter: SourceAdapter) -> int:
     """Map adapter key to a source ID. Simple sequential assignment."""
-    source_ids = {
-        "bettybossi": 1,
-        "fooby": 2,
-        "migusto": 3,
-        "swissmilk": 4,
-        "schweizerfleisch": 5,
-    }
-    return source_ids.get(adapter.key, 99)
+    meta = _SOURCE_METADATA.get(adapter.key)
+    return meta["id"] if meta else 99
+
+
+def _next_run_id(output_dir: Path) -> int:
+    """Determine the next available etl_runs ID from existing data."""
+    try:
+        table = read_table("etl_runs", output_dir)
+        if table.num_rows == 0:
+            return 1
+        return int(table.column("id").to_pylist()[-1]) + 1
+    except Exception:
+        return 1
 
 
 def _get_existing_urls(output_dir: Path) -> set[str]:
@@ -97,6 +140,56 @@ def _get_existing_urls(output_dir: Path) -> set[str]:
         return set(table.column("source_url").to_pylist())
     except Exception:
         return set()
+
+
+def _seed_lookup_tables(output_dir: Path, adapters: list[SourceAdapter]) -> None:
+    """Write seed data to lookup tables if they are empty or missing.
+
+    Ensures that ``sources.parquet`` contains metadata for all adapters
+    being run and that ``ingredients.parquet`` contains the canonical
+    seed catalogue. Idempotent — only writes when the table has zero rows
+    or does not yet exist.
+    """
+    from recipebrain.normalise.ingredients import catalogue_to_rows
+
+    # Seed sources
+    try:
+        sources_table = read_table("sources", output_dir)
+        sources_empty = sources_table.num_rows == 0
+    except Exception:
+        sources_empty = True
+
+    if sources_empty:
+        source_rows = []
+        for adapter in adapters:
+            meta = _SOURCE_METADATA.get(adapter.key)
+            if meta:
+                source_rows.append(
+                    {
+                        "id": meta["id"],
+                        "key": adapter.key,
+                        "display_name": meta["display_name"],
+                        "base_url": meta["base_url"],
+                        "language": meta["language"],
+                        "kind": "scraped",
+                    }
+                )
+        if source_rows:
+            write_table("sources", source_rows, output_dir)
+            logger.info("ETL: seeded sources table with %d entries", len(source_rows))
+
+    # Seed ingredients
+    try:
+        ingredients_table = read_table("ingredients", output_dir)
+        ingredients_empty = ingredients_table.num_rows == 0
+    except Exception:
+        ingredients_empty = True
+
+    if ingredients_empty:
+        rows = catalogue_to_rows()
+        if rows:
+            write_table("ingredients", rows, output_dir)
+            logger.info("ETL: seeded ingredients table with %d entries", len(rows))
 
 
 def run_etl(
@@ -133,6 +226,9 @@ def run_etl(
     if not adapters:
         logger.warning("No source adapters to run (filter=%s)", source_filter)
         return []
+
+    # Seed lookup tables (sources, ingredients) before scraping
+    _seed_lookup_tables(output_dir, adapters)
 
     results = []
 
@@ -177,6 +273,43 @@ def _flush_rows(
     ingredients_rows.clear()
 
 
+def _log_etl_run(
+    result: EtlResult,
+    started_at: datetime,
+    t0: float,
+    batch_size: int | None,
+    limit: int | None,
+    status: str,
+    output_dir: Path,
+) -> None:
+    """Persist an ETL run log row to the etl_runs table."""
+    effective_batch = batch_size if batch_size is not None else _DEFAULT_BATCH_SIZE
+    finished_at = datetime.now(UTC)
+    duration = time.monotonic() - t0
+    error_summary = "; ".join(result.error_details[:10]) if result.error_details else None
+
+    run_row = {
+        "id": _next_run_id(output_dir),
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "duration_seconds": round(duration, 2),
+        "source": result.source,
+        "discovered": result.discovered,
+        "fetched": result.fetched,
+        "skipped": result.skipped,
+        "errors": result.errors,
+        "soft_deleted": result.soft_deleted,
+        "batch_size": effective_batch,
+        "limit": limit,
+        "error_summary": error_summary,
+        "status": status,
+    }
+    try:
+        append_table("etl_runs", [run_row], output_dir)
+    except Exception:
+        logger.warning("ETL: failed to write etl_runs log for %s", result.source)
+
+
 def _run_source(
     adapter: SourceAdapter,
     output_dir: Path,
@@ -193,6 +326,10 @@ def _run_source(
         batch_size: If set, flush to Parquet every N recipes. Useful for
             long-running scrapes so partial progress is saved to disk.
     """
+    started_at = datetime.now(UTC)
+    t0 = time.monotonic()
+    interrupted = False
+
     result = EtlResult(source=adapter.key)
     source_id = _get_source_id(adapter)
     existing_urls = _get_existing_urls(output_dir)
@@ -209,6 +346,7 @@ def _run_source(
         logger.error("ETL: discovery failed for %s: %s", adapter.key, exc)
         result.errors += 1
         result.error_details.append(f"Discovery failed: {exc}")
+        _log_etl_run(result, started_at, t0, batch_size, limit, "failed", output_dir)
         return result
 
     logger.info("ETL: found %d URLs from %s", len(urls), adapter.key)
@@ -243,8 +381,27 @@ def _run_source(
 
             recipe_rows.append(build_recipe_row(raw, source_id=source_id, recipe_id=recipe_id))
             steps_rows.extend(build_recipe_steps_rows(recipe_id, raw.steps_raw))
-            images_rows.extend(build_recipe_images_rows(recipe_id, raw.image_urls))
-            ingredients_rows.extend(build_recipe_ingredients_rows(recipe_id, raw.ingredients_raw))
+
+            # Download images to local storage
+            local_paths: list[str | None] | None = None
+            if raw.image_urls and hasattr(adapter, "_http"):
+                try:
+                    local_paths = download_recipe_images(
+                        raw.image_urls, recipe_id, output_dir, adapter._http
+                    )
+                except Exception as exc:
+                    logger.warning("ETL: image download failed for recipe %d: %s", recipe_id, exc)
+
+            images_rows.extend(
+                build_recipe_images_rows(recipe_id, raw.image_urls, local_paths=local_paths)
+            )
+            ingredients_rows.extend(
+                build_recipe_ingredients_rows(
+                    recipe_id,
+                    raw.ingredients_raw,
+                    ingredient_groups=raw.ingredient_groups or None,
+                )
+            )
             result.fetched += 1
 
             # Flush batch to disk periodically
@@ -258,6 +415,7 @@ def _run_source(
                     adapter.key,
                 )
     except KeyboardInterrupt:
+        interrupted = True
         logger.warning("ETL: interrupted — flushing %d buffered recipes to disk", len(recipe_rows))
     finally:
         # Always write remaining rows, even on Ctrl+C
@@ -274,6 +432,19 @@ def _run_source(
     deleted = _reconcile_deleted(source_id, set(urls), output_dir)
     if deleted:
         logger.info("ETL: soft-deleted %d recipes from %s", deleted, adapter.key)
+    result.soft_deleted = deleted
+
+    # Determine run status
+    if interrupted:
+        run_status = "interrupted"
+    elif result.errors > 0 and result.fetched == 0:
+        run_status = "failed"
+    elif result.errors > 0:
+        run_status = "partial"
+    else:
+        run_status = "success"
+
+    _log_etl_run(result, started_at, t0, batch_size, limit, run_status, output_dir)
 
     return result
 

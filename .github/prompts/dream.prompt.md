@@ -1,6 +1,6 @@
 ---
 description: "Consolidate agent memories into learned rules — the dream cycle"
-mode: "agent"
+agent: agent
 ---
 # Dream Cycle
 

@@ -191,6 +191,24 @@ SCHEMAS: dict[str, pa.Schema] = {
             ("status", pa.string()),
         ]
     ),
+    "etl_runs": pa.schema(
+        [
+            ("id", pa.int64()),
+            ("started_at", pa.timestamp("us")),
+            ("finished_at", pa.timestamp("us")),
+            ("duration_seconds", pa.float64()),
+            ("source", pa.string()),
+            ("discovered", pa.int32()),
+            ("fetched", pa.int32()),
+            ("skipped", pa.int32()),
+            ("errors", pa.int32()),
+            ("soft_deleted", pa.int32()),
+            ("batch_size", pa.int16()),
+            ("limit", pa.int32()),
+            ("error_summary", pa.string()),
+            ("status", pa.string()),
+        ]
+    ),
 }
 
 

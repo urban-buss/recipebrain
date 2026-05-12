@@ -153,6 +153,57 @@ class TestEdgeCases:
         assert result.ingredient == "Blätterteig"
 
 
+class TestOptionalDetection:
+    @pytest.mark.parametrize(
+        ("line", "expected_ingredient", "expected_optional"),
+        [
+            ("evt. etwas Petersilie", "etwas Petersilie", True),
+            ("2 EL Schnittlauch, optional", "Schnittlauch", True),
+            ("Muskatnuss, nach Belieben", "Muskatnuss", True),
+            ("evtl. 1 TL Zucker", "Zucker", True),
+            ("1 Prise Salz, fakultativ", "Salz", True),
+            ("nach Belieben: Schnittlauch", "Schnittlauch", True),
+        ],
+    )
+    def test_detects_optional_markers(self, line, expected_ingredient, expected_optional):
+        result = parse_ingredient_line(line)
+        assert result.optional is expected_optional
+        assert result.ingredient == expected_ingredient
+
+    @pytest.mark.parametrize(
+        ("line",),
+        [
+            ("200 g Pouletbrust",),
+            ("Salz und Pfeffer",),
+            ("3 Eier",),
+            ("1 Bund Petersilie",),
+        ],
+    )
+    def test_non_optional_ingredients(self, line):
+        result = parse_ingredient_line(line)
+        assert result.optional is False
+
+    def test_optional_with_quantity_and_unit(self):
+        result = parse_ingredient_line("evt. 2 dl Rahm")
+        assert result.optional is True
+        assert result.quantity == 2.0
+        assert result.unit == "dl"
+        assert result.ingredient == "Rahm"
+
+    def test_optional_marker_stripped_from_ingredient(self):
+        result = parse_ingredient_line("Petersilie, optional")
+        assert result.optional is True
+        assert "optional" not in result.ingredient
+        assert result.ingredient == "Petersilie"
+
+    def test_nach_belieben_colon_syntax(self):
+        result = parse_ingredient_line("nach Belieben: 1 EL Honig")
+        assert result.optional is True
+        assert result.ingredient == "Honig"
+        assert result.quantity == 1.0
+        assert result.unit == "EL"
+
+
 class TestShimImport:
     def test_import_from_flat_module(self):
         from recipebrain.parse_ingredient_line import parse_ingredient_line as fn

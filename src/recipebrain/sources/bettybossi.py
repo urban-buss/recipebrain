@@ -20,7 +20,7 @@ from selectolax.parser import HTMLParser
 
 from recipebrain.parse.jsonld import extract_recipes, parse_recipe
 from recipebrain.settings import Settings
-from recipebrain.sources.base import RawRecipe, SourceAdapter
+from recipebrain.sources.base import RawIngredientGroup, RawRecipe, SourceAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,21 @@ class BettybossiAdapter(SourceAdapter):
         # Try JSON-LD first (preferred strategy per ADR-002)
         recipes = extract_recipes(response.text, base_url=url)
         if recipes:
-            return parse_recipe(recipes[0], source_url=url, language=language)
+            raw = parse_recipe(recipes[0], source_url=url, language=language)
+            # Supplement with HTML ingredient groups and keywords
+            tree = HTMLParser(response.text)
+            raw.ingredient_groups = _extract_ingredient_groups(tree)
+            if not raw.keywords:
+                raw.keywords = _extract_keywords(tree)
+                if not raw.keywords:
+                    raw.keywords = _extract_breadcrumb_categories(tree)
+                else:
+                    raw.keywords.extend(_extract_breadcrumb_categories(tree))
+            # Supplement with gallery images from HTML
+            for img in _extract_gallery_images(tree):
+                if img not in raw.image_urls:
+                    raw.image_urls.append(img)
+            return raw
 
         # HTML fallback
         tree = HTMLParser(response.text)
@@ -99,10 +113,14 @@ class BettybossiAdapter(SourceAdapter):
         if not title:
             raise ValueError(f"No recipe found at {url}")
 
+        groups = _extract_ingredient_groups(tree)
+        ingredients_flat = [item for g in groups for item in g.items]
+
         return RawRecipe(
             title=title,
             description=_extract_description(tree),
-            ingredients_raw=_extract_ingredients(tree),
+            ingredients_raw=ingredients_flat,
+            ingredient_groups=groups,
             steps_raw=_extract_steps(tree),
             yield_amount=_extract_yield(tree),
             prep_time=_extract_time(tree, "prep"),
@@ -165,6 +183,69 @@ def _extract_ingredients(tree: HTMLParser) -> list[str]:
     return ingredients
 
 
+def _extract_ingredient_groups(tree: HTMLParser) -> list[RawIngredientGroup]:
+    """Extract ingredients preserving group structure from Betty Bossi HTML.
+
+    Betty Bossi structures ingredients in sections. Group headings appear as
+    h3/h4 elements or dedicated heading elements within ingredient sections.
+    Ingredients within each group are list items.
+
+    Examples:
+        Input HTML with groups:
+            <section class="ingredients">
+                <h3>Für den Teig</h3>
+                <ul><li>200 g Mehl</li><li>100 ml Milch</li></ul>
+                <h3>Für die Sauce</h3>
+                <ul><li>2 dl Rahm</li></ul>
+            </section>
+        Output:
+            [RawIngredientGroup("Für den Teig", [...]),
+             RawIngredientGroup("Für die Sauce", [...])]
+    """
+    groups: list[RawIngredientGroup] = []
+
+    # Strategy 1: Look for grouped ingredient sections with headings
+    ingredient_sections = tree.css(
+        ".ingredients, .ingredient-section, [class*='ingredient-group'], [class*='ingredientGroup']"
+    )
+
+    for section in ingredient_sections:
+        current_label: str | None = None
+        current_items: list[str] = []
+
+        # Use css('*') for document-order traversal of all descendants
+        for child in section.css("*"):
+            if child.tag in ("h3", "h4", "h5"):
+                text = (child.text() or "").strip()
+                # Skip the main "Zutaten" / "Ingrédients" heading
+                if text.lower() in ("zutaten", "ingrédients", "ingredients", "ingredienti"):
+                    continue
+                if text:
+                    # Save previous group if it has items
+                    if current_items:
+                        groups.append(RawIngredientGroup(label=current_label, items=current_items))
+                    current_label = text
+                    current_items = []
+            elif child.tag == "li":
+                item_text = (child.text() or "").strip()
+                item_text = " ".join(item_text.split())
+                if item_text:
+                    current_items.append(item_text)
+
+        # Save the last group
+        if current_items:
+            groups.append(RawIngredientGroup(label=current_label, items=current_items))
+
+    if groups:
+        return groups
+
+    # Strategy 2: Fall back to flat extraction wrapped in a single group
+    flat = _extract_ingredients(tree)
+    if flat:
+        return [RawIngredientGroup(label=None, items=flat)]
+    return []
+
+
 def _extract_steps(tree: HTMLParser) -> list[str]:
     """Extract preparation steps from the recipe page."""
     steps: list[str] = []
@@ -224,6 +305,48 @@ def _extract_images(tree: HTMLParser) -> list[str]:
     return images
 
 
+def _extract_gallery_images(tree: HTMLParser) -> list[str]:
+    """Extract additional recipe images from Betty Bossi's page gallery.
+
+    Scans HTML for gallery/carousel/slider image elements that are not
+    captured by JSON-LD. Returns deduplicated URLs from media.bettybossi.ch.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<div class="recipe-gallery"><img data-src="https://media.bettybossi.ch/img1.jpg"></div>'
+        >>> _extract_gallery_images(HTMLParser(html))
+        ['https://media.bettybossi.ch/img1.jpg']
+    """
+    images: list[str] = []
+    seen: set[str] = set()
+    selectors = ".recipe-gallery img, .recipe-slider img, .recipe-carousel img, picture source"
+    for node in tree.css(selectors):
+        src = (
+            node.attributes.get("data-src")
+            or _first_srcset_url(node.attributes.get("srcset") or "")
+            or node.attributes.get("src")
+            or ""
+        ).strip()
+        if src and "media.bettybossi.ch" in src and src not in seen:
+            images.append(src)
+            seen.add(src)
+    return images
+
+
+def _first_srcset_url(srcset: str) -> str:
+    """Extract the first URL from a srcset attribute value.
+
+    Examples:
+        >>> _first_srcset_url("https://example.com/img.jpg 1x, https://example.com/img2.jpg 2x")
+        'https://example.com/img.jpg'
+        >>> _first_srcset_url("")
+        ''
+    """
+    if not srcset:
+        return ""
+    return srcset.split(",")[0].split(" ")[0].strip()
+
+
 def _extract_keywords(tree: HTMLParser) -> list[str]:
     """Extract recipe keywords/tags."""
     keywords: list[str] = []
@@ -231,6 +354,34 @@ def _extract_keywords(tree: HTMLParser) -> list[str]:
     if meta:
         content = meta.attributes.get("content") or ""
         keywords = [k.strip() for k in content.split(",") if k.strip()]
+    return keywords
+
+
+def _extract_breadcrumb_categories(tree: HTMLParser) -> list[str]:
+    """Extract category keywords from breadcrumb navigation.
+
+    Betty Bossi uses breadcrumb navigation that contains recipe categories
+    useful as supplementary keyword data.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = (
+        ...     '<nav class="breadcrumb">'
+        ...     '<a href="/">Home</a>'
+        ...     '<a href="/r">Rezepte</a>'
+        ...     '<a href="/r/g">Gratin</a></nav>'
+        ... )
+        >>> _extract_breadcrumb_categories(HTMLParser(html))
+        ['Gratin']
+    """
+    keywords: list[str] = []
+    skip = {"Home", "Rezepte", "Recettes", "Accueil"}
+    seen: set[str] = set()
+    for node in tree.css("nav.breadcrumb a, .breadcrumb-item a"):
+        text = (node.text() or "").strip()
+        if text and text not in skip and text not in seen:
+            keywords.append(text)
+            seen.add(text)
     return keywords
 
 

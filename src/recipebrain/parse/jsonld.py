@@ -64,6 +64,8 @@ def parse_recipe(data: dict, source_url: str = "", language: str = "de") -> RawR
         keywords=_extract_keywords(data.get("keywords")),
         source_url=source_url,
         language=language,
+        category=data.get("recipeCategory", "") or "",
+        cuisine=data.get("recipeCuisine", "") or "",
     )
 
 

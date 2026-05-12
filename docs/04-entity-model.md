@@ -227,6 +227,27 @@ LLM-assisted, growing over time.
 
 PK: `(promotion_id, ingredient_id)`.
 
+### `etl_runs`
+
+One row per source per ETL invocation. Tracks run metadata for diagnostics.
+
+| column           | type      | notes                                               |
+|------------------|-----------|-----------------------------------------------------|
+| id               | int64     | PK                                                  |
+| started_at       | timestamp | run start (UTC)                                     |
+| finished_at      | timestamp | run end (UTC)                                       |
+| duration_seconds | float64   | wall-clock seconds                                  |
+| source           | string    | adapter key, e.g. `fooby`                           |
+| discovered       | int32     | URLs found during discovery                         |
+| fetched          | int32     | new recipes written                                 |
+| skipped          | int32     | already-existing, skipped                           |
+| errors           | int32     | fetch/parse failures                                |
+| soft_deleted     | int32     | recipes marked deleted during reconciliation        |
+| batch_size       | int16     | effective batch size used                           |
+| limit            | int32     | nullable, `--limit` value                           |
+| error_summary    | string    | nullable, first 10 error messages joined            |
+| status           | string    | `success` \| `partial` \| `failed` \| `interrupted` |
+
 ## Computed / Derived Fields
 
 Recomputed by ETL, never edited directly:

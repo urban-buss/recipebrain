@@ -1,16 +1,16 @@
 ---
-description: "Analyze chat history to identify issues, bugs, and problems encountered during development, then save them as structured issue files in .github/issues/"
-mode: "agent"
+description: "Analyze chat history to identify issues, bugs, and problems encountered during development, then save them as structured issue files in issues/"
+agent: agent
 ---
 # Identify Issues
 
-Review the full conversation history and identify all issues encountered. For each issue, create a separate markdown file in `.github/issues/`.
+Review the full conversation history and identify all issues encountered. For each issue, create a separate markdown file in `issues/`.
 
 ## Process
 
 1. Read through the entire chat history carefully
 2. Identify distinct issues: errors, unexpected behavior, workarounds needed, version mismatches, configuration problems
-3. Create the `.github/issues/` folder if it doesn't exist
+3. Create the `issues/` folder if it doesn't exist
 4. Write one file per issue using the naming convention: `NNN-short-slug.md` (e.g. `001-parser-missing-json-ld.md`)
 
 ## Issue File Format

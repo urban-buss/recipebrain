@@ -13,8 +13,10 @@ from recipebrain.etl import (
     _get_source_adapters,
     _get_source_id,
     _next_recipe_id,
+    _next_run_id,
     _reconcile_deleted,
     _run_source,
+    _seed_lookup_tables,
     run_etl,
 )
 from recipebrain.settings import PathsConfig, Settings, SourceConfig
@@ -456,3 +458,266 @@ class TestGetSourceId:
             assert sid != 99, f"{key} should not fall back to 99"
             ids.add(sid)
         assert len(ids) == 5, "All source IDs should be unique"
+
+
+class TestEtlRunLog:
+    def test_run_source_writes_etl_run(self, tmp_path):
+        """A successful _run_source writes one row to etl_runs."""
+        adapter = FakeAdapter(urls=["https://a.ch/1", "https://a.ch/2"])
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(runs) == 1
+        row = runs[0]
+        assert row["source"] == "fake"
+        assert row["discovered"] == 2
+        assert row["fetched"] == 2
+        assert row["skipped"] == 0
+        assert row["errors"] == 0
+        assert row["status"] == "success"
+        assert row["duration_seconds"] >= 0
+        assert row["started_at"] is not None
+        assert row["finished_at"] is not None
+
+    def test_run_source_logs_errors_as_partial(self, tmp_path):
+        """A run with some errors and some successes is logged as partial."""
+        call_count = 0
+
+        class PartialFailAdapter(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                nonlocal call_count
+                call_count += 1
+                if call_count == 2:
+                    raise ValueError("bad page")
+                return super().fetch(url)
+
+        adapter = PartialFailAdapter(urls=["https://a.ch/1", "https://a.ch/2", "https://a.ch/3"])
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(runs) == 1
+        assert runs[0]["status"] == "partial"
+        assert runs[0]["errors"] == 1
+        assert runs[0]["fetched"] == 2
+        assert "bad page" in runs[0]["error_summary"]
+
+    def test_run_source_logs_discovery_failure(self, tmp_path):
+        """A discovery failure still logs a run with status=failed."""
+        adapter = FakeAdapter()
+        adapter.discover = MagicMock(side_effect=RuntimeError("network down"))
+
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(runs) == 1
+        assert runs[0]["status"] == "failed"
+        assert runs[0]["discovered"] == 0
+        assert "Discovery failed" in runs[0]["error_summary"]
+
+    def test_run_source_logs_all_failures_as_failed(self, tmp_path):
+        """When all fetches fail, status is failed."""
+        adapter = FakeAdapter(urls=["https://a.ch/1", "https://a.ch/2"])
+        adapter.fetch = MagicMock(side_effect=ValueError("broken"))
+
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["status"] == "failed"
+        assert runs[0]["fetched"] == 0
+        assert runs[0]["errors"] == 2
+
+    def test_run_source_logs_batch_size_and_limit(self, tmp_path):
+        """batch_size and limit are captured in the log."""
+        adapter = FakeAdapter(urls=["https://a.ch/1"])
+        _run_source(adapter, tmp_path, batch_size=5, limit=10)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["batch_size"] == 5
+        assert runs[0]["limit"] == 10
+
+    def test_run_source_logs_default_batch_size(self, tmp_path):
+        """When batch_size is None, the default is recorded."""
+        adapter = FakeAdapter(urls=["https://a.ch/1"])
+        _run_source(adapter, tmp_path, batch_size=None)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["batch_size"] == _DEFAULT_BATCH_SIZE
+
+    def test_run_source_logs_null_limit(self, tmp_path):
+        """When limit is None, it is stored as null."""
+        adapter = FakeAdapter(urls=["https://a.ch/1"])
+        _run_source(adapter, tmp_path, limit=None)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["limit"] is None
+
+    def test_run_source_logs_soft_deleted(self, tmp_path):
+        """soft_deleted count is captured in the log."""
+        from recipebrain.writer import write_table as wt
+
+        wt(
+            "recipes",
+            [
+                {"id": 1, "source_id": 99, "source_url": "https://a.ch/gone", "status": "active"},
+            ],
+            tmp_path,
+        )
+        # FakeAdapter discovers nothing for source_id=99 → the existing recipe gets soft-deleted
+        adapter = FakeAdapter(urls=[])
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["soft_deleted"] == 1
+
+    def test_multiple_runs_get_sequential_ids(self, tmp_path):
+        """Each run gets an incrementing ID."""
+        for i in range(3):
+            adapter = FakeAdapter(urls=[f"https://a.ch/{i}"])
+            _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        ids = [r["id"] for r in runs]
+        assert ids == [1, 2, 3]
+
+    def test_interrupt_logged_as_interrupted(self, tmp_path):
+        """A KeyboardInterrupt results in status=interrupted."""
+        call_count = 0
+
+        class InterruptAdapter(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                nonlocal call_count
+                call_count += 1
+                if call_count > 1:
+                    raise KeyboardInterrupt
+                return super().fetch(url)
+
+        adapter = InterruptAdapter(urls=["https://a.ch/1", "https://a.ch/2", "https://a.ch/3"])
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["status"] == "interrupted"
+
+
+class TestNextRunId:
+    def test_returns_1_when_no_data(self, tmp_path):
+        assert _next_run_id(tmp_path) == 1
+
+    def test_returns_next_after_existing(self, tmp_path):
+        from recipebrain.writer import write_table as wt
+
+        wt("etl_runs", [{"id": 5, "source": "test"}], tmp_path)
+        assert _next_run_id(tmp_path) == 6
+
+
+class _FoobyAdapter(SourceAdapter):
+    """Adapter with a key that exists in _SOURCE_METADATA."""
+
+    key: ClassVar[str] = "fooby"
+    display_name: ClassVar[str] = "Fooby"
+    languages: ClassVar[tuple[str, ...]] = ("de",)
+
+    def discover(self) -> Iterable[str]:
+        return []
+
+    def fetch(self, url: str) -> RawRecipe:
+        raise NotImplementedError
+
+
+class TestSeedLookupTables:
+    """Tests for _seed_lookup_tables."""
+
+    def test_seeds_sources_when_missing(self, tmp_path):
+        """sources.parquet is created with adapter metadata."""
+        adapter = _FoobyAdapter()
+        _seed_lookup_tables(tmp_path, [adapter])
+
+        sources = read_table("sources", tmp_path).to_pylist()
+        assert len(sources) == 1
+        row = sources[0]
+        assert row["id"] == 2
+        assert row["key"] == "fooby"
+        assert row["display_name"] == "Fooby"
+        assert row["base_url"] == "https://fooby.ch"
+        assert row["language"] == "de"
+        assert row["kind"] == "scraped"
+
+    def test_seeds_ingredients_when_missing(self, tmp_path):
+        """ingredients.parquet is created with the seed catalogue."""
+        _seed_lookup_tables(tmp_path, [])
+
+        ingredients = read_table("ingredients", tmp_path).to_pylist()
+        assert len(ingredients) > 0
+        # Verify structure matches schema
+        assert "id" in ingredients[0]
+        assert "key" in ingredients[0]
+        assert "display_de" in ingredients[0]
+
+    def test_idempotent_does_not_overwrite_sources(self, tmp_path):
+        """If sources already has data, seeding does not replace it."""
+        write_table(
+            "sources",
+            [
+                {
+                    "id": 99,
+                    "key": "custom",
+                    "display_name": "Custom",
+                    "base_url": "https://x.ch",
+                    "language": "fr",
+                    "kind": "manual",
+                }
+            ],
+            tmp_path,
+        )
+        adapter = _FoobyAdapter()
+        _seed_lookup_tables(tmp_path, [adapter])
+
+        sources = read_table("sources", tmp_path).to_pylist()
+        assert len(sources) == 1
+        assert sources[0]["id"] == 99  # original data preserved
+
+    def test_idempotent_does_not_overwrite_ingredients(self, tmp_path):
+        """If ingredients already has data, seeding does not replace it."""
+        write_table(
+            "ingredients",
+            [{"id": 999, "key": "test_ing", "display_de": "TestZutat", "category": "other"}],
+            tmp_path,
+        )
+        _seed_lookup_tables(tmp_path, [])
+
+        ingredients = read_table("ingredients", tmp_path).to_pylist()
+        assert len(ingredients) == 1
+        assert ingredients[0]["id"] == 999  # original data preserved
+
+    def test_unknown_adapter_key_skipped(self, tmp_path):
+        """Adapters not in _SOURCE_METADATA are silently skipped."""
+        adapter = FakeAdapter()  # key="fake", not in metadata
+        _seed_lookup_tables(tmp_path, [adapter])
+
+        # No sources written (no valid metadata), but ingredients still seeded
+        import pytest
+
+        from recipebrain.writer import DataStaleError
+
+        with pytest.raises(DataStaleError):
+            read_table("sources", tmp_path)
+
+    def test_multiple_adapters_seeded(self, tmp_path):
+        """Multiple known adapters are all written to sources."""
+
+        class _BettyAdapter(SourceAdapter):
+            key: ClassVar[str] = "bettybossi"
+            display_name: ClassVar[str] = "Betty Bossi"
+            languages: ClassVar[tuple[str, ...]] = ("de",)
+
+            def discover(self) -> Iterable[str]:
+                return []
+
+            def fetch(self, url: str) -> RawRecipe:
+                raise NotImplementedError
+
+        _seed_lookup_tables(tmp_path, [_FoobyAdapter(), _BettyAdapter()])
+
+        sources = read_table("sources", tmp_path).to_pylist()
+        assert len(sources) == 2
+        ids = {s["id"] for s in sources}
+        assert ids == {1, 2}  # bettybossi=1, fooby=2

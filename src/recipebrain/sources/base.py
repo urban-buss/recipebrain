@@ -13,12 +13,25 @@ from typing import ClassVar
 
 
 @dataclass
+class RawIngredientGroup:
+    """A group of ingredients, optionally with a label.
+
+    Swiss recipes commonly structure ingredients under headings like
+    "Für den Teig", "Für die Sauce". This dataclass preserves that structure.
+    """
+
+    label: str | None
+    items: list[str]
+
+
+@dataclass
 class RawRecipe:
     """Raw recipe data as extracted from a source (typically via JSON-LD)."""
 
     title: str
     description: str = ""
     ingredients_raw: list[str] = field(default_factory=list)
+    ingredient_groups: list[RawIngredientGroup] = field(default_factory=list)
     steps_raw: list[str] = field(default_factory=list)
     yield_amount: str = ""
     prep_time: str = ""
@@ -27,6 +40,9 @@ class RawRecipe:
     keywords: list[str] = field(default_factory=list)
     source_url: str = ""
     language: str = "de"
+    category: str = ""
+    cuisine: str = ""
+    difficulty: str = ""
 
 
 class SourceAdapter(ABC):
