@@ -107,6 +107,13 @@ class TestCliLog:
             "updated_at": [datetime.datetime(2024, 1, 1)],
             "content_hash": ["h1"],
             "status": ["active"],
+            "primary_protein": [None],
+            "taste_profile": ["savoury"],
+            "weight_class": ["medium"],
+            "cooking_method": [None],
+            "dietary_flags": [[]],
+            "food_groups": [[]],
+            "computed_tags": [[]],
         }
         table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
         pq.write_table(table, tmp_path / "recipes.parquet")
@@ -158,6 +165,13 @@ class TestCliLog:
             "updated_at": [datetime.datetime(2024, 1, 1)],
             "content_hash": ["h1"],
             "status": ["active"],
+            "primary_protein": [None],
+            "taste_profile": ["savoury"],
+            "weight_class": ["medium"],
+            "cooking_method": [None],
+            "dietary_flags": [[]],
+            "food_groups": [[]],
+            "computed_tags": [[]],
         }
         table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
         pq.write_table(table, tmp_path / "recipes.parquet")
@@ -210,6 +224,13 @@ class TestCliLog:
             "updated_at": [datetime.datetime(2024, 1, 1)],
             "content_hash": ["h1"],
             "status": ["active"],
+            "primary_protein": [None],
+            "taste_profile": ["savoury"],
+            "weight_class": ["medium"],
+            "cooking_method": [None],
+            "dietary_flags": [[]],
+            "food_groups": [[]],
+            "computed_tags": [[]],
         }
         table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
         pq.write_table(table, tmp_path / "recipes.parquet")

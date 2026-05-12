@@ -18,6 +18,15 @@ import re
 import unicodedata
 from datetime import UTC, datetime
 
+from recipebrain.computed import (
+    build_computed_tags,
+    compute_cooking_method,
+    compute_dietary_flags,
+    compute_food_groups,
+    compute_primary_protein,
+    compute_taste_profile,
+    compute_weight_class,
+)
 from recipebrain.normalise.ingredients import get_ingredient_id
 from recipebrain.parse.ingredient_line import parse_ingredient_line
 from recipebrain.sources.base import RawIngredientGroup, RawRecipe
@@ -144,17 +153,84 @@ def _infer_difficulty(raw_difficulty: str, total_minutes: int | None) -> str | N
 
 
 # ---------------------------------------------------------------------------
+# Public API — classification extraction
+# ---------------------------------------------------------------------------
+
+
+def extract_classification(data: dict) -> dict:
+    """Extract normalised classification fields from raw recipe metadata.
+
+    Accepts a dict with JSON-LD style keys and returns normalised
+    classification values. Falls back to scanning ``keywords`` for
+    course and difficulty when explicit fields are absent.
+
+    Args:
+        data: Dict with optional keys:
+            - ``recipeCategory`` / ``category``: raw category string
+            - ``recipeCuisine`` / ``cuisine``: raw cuisine string
+            - ``difficulty``: raw difficulty string
+            - ``keywords``: list of keyword strings
+            - ``total_minutes``: integer total cook time (for difficulty inference)
+
+    Returns:
+        Dict with keys ``course``, ``cuisine``, ``difficulty`` (values may be None).
+
+    Examples:
+        >>> extract_classification({'recipeCategory': 'Hauptgericht'})
+        {'course': 'main', 'cuisine': None, 'difficulty': None}
+        >>> extract_classification({'keywords': ['einfach', 'Schweizer Küche']})
+        {'course': None, 'cuisine': None, 'difficulty': 'easy'}
+    """
+    category = data.get("recipeCategory") or data.get("category", "")
+    cuisine_raw = data.get("recipeCuisine") or data.get("cuisine", "")
+    difficulty_raw = data.get("difficulty", "")
+    keywords = data.get("keywords") or []
+    total_minutes = data.get("total_minutes")
+
+    course = _normalise_course(category)
+    cuisine = _normalise_cuisine(cuisine_raw)
+    difficulty = _infer_difficulty(difficulty_raw, total_minutes)
+
+    # Fallback: scan keywords for course / difficulty when not resolved above
+    if not course:
+        for kw in keywords:
+            course = _normalise_course(kw)
+            if course:
+                break
+
+    if not difficulty:
+        for kw in keywords:
+            difficulty = _normalise_difficulty(kw)
+            if difficulty:
+                break
+
+    return {
+        "course": course,
+        "cuisine": cuisine,
+        "difficulty": difficulty,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public API — row builders
 # ---------------------------------------------------------------------------
 
 
-def build_recipe_row(raw: RawRecipe, source_id: int, recipe_id: int) -> dict:
+def build_recipe_row(
+    raw: RawRecipe,
+    source_id: int,
+    recipe_id: int,
+    ingredient_rows: list[dict] | None = None,
+) -> dict:
     """Convert a RawRecipe into a dict matching SCHEMAS["recipes"].
 
     Args:
         raw: The raw recipe data from a source adapter.
         source_id: FK to the sources table.
         recipe_id: Assigned PK for this recipe.
+        ingredient_rows: Pre-built ingredient row dicts (from
+            ``build_recipe_ingredients_rows``). When provided, computed
+            classification tags are derived from the resolved ingredients.
 
     Returns:
         Dict with all columns for the recipes schema.
@@ -171,6 +247,36 @@ def build_recipe_row(raw: RawRecipe, source_id: int, recipe_id: int) -> dict:
 
     now = datetime.now(UTC)
 
+    course = _normalise_course(raw.category)
+    cuisine = _normalise_cuisine(raw.cuisine)
+    difficulty = _infer_difficulty(raw.difficulty, total)
+    keywords = raw.keywords or []
+    ing_rows = ingredient_rows or []
+
+    # Computed classification tags
+    primary_protein = compute_primary_protein(ing_rows)
+    taste_profile = compute_taste_profile(course, ing_rows, keywords)
+    weight_class = compute_weight_class(
+        course,
+        cook,
+        ing_rows,
+        keywords,
+        primary_protein,
+    )
+    cooking_method = compute_cooking_method(raw.steps_raw, keywords)
+    dietary_flags = compute_dietary_flags(ing_rows, total_minutes=total)
+    food_groups = compute_food_groups(ing_rows, cooking_method, weight_class)
+    computed_tags = build_computed_tags(
+        primary_protein,
+        taste_profile,
+        weight_class,
+        cooking_method,
+        dietary_flags,
+        course,
+        cuisine,
+        difficulty,
+    )
+
     return {
         "id": recipe_id,
         "source_id": source_id,
@@ -184,11 +290,11 @@ def build_recipe_row(raw: RawRecipe, source_id: int, recipe_id: int) -> dict:
         "prep_minutes": prep,
         "cook_minutes": cook,
         "total_minutes": total,
-        "difficulty": _infer_difficulty(raw.difficulty, total),
-        "cuisine": _normalise_cuisine(raw.cuisine),
-        "course": _normalise_course(raw.category),
+        "difficulty": difficulty,
+        "cuisine": cuisine,
+        "course": course,
         "primary_image_url": raw.image_urls[0] if raw.image_urls else None,
-        "original_keywords": raw.keywords or [],
+        "original_keywords": keywords,
         "owner_rating": None,
         "starred": False,
         "times_cooked": 0,
@@ -197,6 +303,13 @@ def build_recipe_row(raw: RawRecipe, source_id: int, recipe_id: int) -> dict:
         "updated_at": now,
         "content_hash": _compute_content_hash(raw),
         "status": "active",
+        "primary_protein": primary_protein,
+        "taste_profile": taste_profile,
+        "weight_class": weight_class,
+        "cooking_method": cooking_method,
+        "dietary_flags": dietary_flags,
+        "food_groups": food_groups,
+        "computed_tags": computed_tags,
     }
 
 

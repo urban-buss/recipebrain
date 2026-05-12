@@ -379,7 +379,21 @@ def _run_source(
             recipe_id = next_id
             next_id += 1
 
-            recipe_rows.append(build_recipe_row(raw, source_id=source_id, recipe_id=recipe_id))
+            # Build ingredient rows first — needed for computed tags
+            recipe_ingredient_rows = build_recipe_ingredients_rows(
+                recipe_id,
+                raw.ingredients_raw,
+                ingredient_groups=raw.ingredient_groups or None,
+            )
+
+            recipe_rows.append(
+                build_recipe_row(
+                    raw,
+                    source_id=source_id,
+                    recipe_id=recipe_id,
+                    ingredient_rows=recipe_ingredient_rows,
+                )
+            )
             steps_rows.extend(build_recipe_steps_rows(recipe_id, raw.steps_raw))
 
             # Download images to local storage
@@ -395,13 +409,7 @@ def _run_source(
             images_rows.extend(
                 build_recipe_images_rows(recipe_id, raw.image_urls, local_paths=local_paths)
             )
-            ingredients_rows.extend(
-                build_recipe_ingredients_rows(
-                    recipe_id,
-                    raw.ingredients_raw,
-                    ingredient_groups=raw.ingredient_groups or None,
-                )
-            )
+            ingredients_rows.extend(recipe_ingredient_rows)
             result.fetched += 1
 
             # Flush batch to disk periodically
