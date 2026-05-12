@@ -12,6 +12,13 @@ from recipebrain.init import InitResult, init_data_dir
 class TestInitDataDir:
     """Happy-path and edge-case tests for init_data_dir()."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_config_pointer(self, tmp_path: Path, monkeypatch):
+        """Redirect the user-level config pointer to a temp dir so tests
+        don't pollute ~/.config/recipebrain/."""
+        fake_pointer = tmp_path / ".config" / "recipebrain" / "config-path"
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", fake_pointer)
+
     def test_creates_fresh_directory(self, tmp_path: Path):
         target = tmp_path / "mydata"
         result = init_data_dir(target)
@@ -91,9 +98,44 @@ class TestInitDataDir:
         assert target.is_dir()
         assert result.config_path.exists()
 
+    def test_writes_config_pointer(self, tmp_path: Path, monkeypatch):
+        """init_data_dir writes a user-level config-path pointer."""
+        fake_pointer = tmp_path / "fake_config_home" / "config-path"
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", fake_pointer)
+
+        target = tmp_path / "mydata"
+        result = init_data_dir(target)
+
+        assert fake_pointer.exists()
+        stored = fake_pointer.read_text(encoding="utf-8").strip()
+        assert stored == str(result.config_path)
+
+    def test_config_pointer_survives_permission_error(self, tmp_path: Path, monkeypatch):
+        """init_data_dir succeeds even if writing the pointer fails."""
+        # Point to a file inside a non-existent read-only parent (simulate failure)
+        fake_pointer = tmp_path / "readonly" / "config-path"
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", fake_pointer)
+
+        # Make the parent exist but read-only
+        fake_pointer.parent.mkdir(parents=True)
+        fake_pointer.parent.chmod(0o444)
+
+        target = tmp_path / "mydata"
+        try:
+            result = init_data_dir(target)
+            # init itself should succeed regardless of pointer write
+            assert result.config_written is True
+        finally:
+            fake_pointer.parent.chmod(0o755)
+
 
 class TestCmdInit:
     """Integration tests for the CLI init subcommand."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_config_pointer(self, tmp_path: Path, monkeypatch):
+        fake_pointer = tmp_path / ".config" / "recipebrain" / "config-path"
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", fake_pointer)
 
     def test_init_in_help(self):
         import subprocess

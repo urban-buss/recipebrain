@@ -3,6 +3,14 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_config_pointer(tmp_path, monkeypatch):
+    """Prevent the real ~/.config/recipebrain/config-path from interfering."""
+    monkeypatch.setattr(
+        "recipebrain.settings._CONFIG_PATH_FILE", tmp_path / "no-such" / "config-path"
+    )
+
+
 def test_settings_load_defaults(tmp_path, monkeypatch):
     from pathlib import Path
 
@@ -214,3 +222,99 @@ class TestConfigResolution:
 
         settings = Settings.load(None)
         assert settings.scraping.rate_limit_seconds == 2.0
+
+
+class TestConfigPathPointer:
+    """User-level config pointer at ~/.config/recipebrain/config-path."""
+
+    def test_pointer_file_used_when_no_cwd_config(self, tmp_path, monkeypatch):
+        from recipebrain.settings import Settings
+
+        monkeypatch.chdir(tmp_path)
+
+        # Create a config somewhere outside CWD
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        cfg = data_dir / "recipebrain.toml"
+        cfg.write_text("[scraping]\nrate_limit_seconds = 42.0\n")
+
+        # Write a pointer to it
+        fake_user_config = tmp_path / "fake_config_home"
+        pointer = fake_user_config / "config-path"
+        fake_user_config.mkdir(parents=True)
+        pointer.write_text(str(cfg), encoding="utf-8")
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", pointer)
+
+        settings = Settings.load(None)
+        assert settings.scraping.rate_limit_seconds == 42.0
+
+    def test_cwd_config_takes_priority_over_pointer(self, tmp_path, monkeypatch):
+        from recipebrain.settings import Settings
+
+        monkeypatch.chdir(tmp_path)
+
+        # CWD has a config
+        (tmp_path / "recipebrain.toml").write_text("[scraping]\nrate_limit_seconds = 1.0\n")
+
+        # Pointer points elsewhere
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        cfg = data_dir / "recipebrain.toml"
+        cfg.write_text("[scraping]\nrate_limit_seconds = 99.0\n")
+        fake_user_config = tmp_path / "fake_config_home"
+        pointer = fake_user_config / "config-path"
+        fake_user_config.mkdir(parents=True)
+        pointer.write_text(str(cfg), encoding="utf-8")
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", pointer)
+
+        settings = Settings.load(None)
+        # CWD config wins
+        assert settings.scraping.rate_limit_seconds == 1.0
+
+    def test_pointer_to_missing_file_falls_back_to_defaults(self, tmp_path, monkeypatch):
+        from recipebrain.settings import Settings
+
+        monkeypatch.chdir(tmp_path)
+
+        fake_user_config = tmp_path / "fake_config_home"
+        pointer = fake_user_config / "config-path"
+        fake_user_config.mkdir(parents=True)
+        pointer.write_text(str(tmp_path / "nonexistent.toml"), encoding="utf-8")
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", pointer)
+
+        # Should fall through to defaults, not raise
+        settings = Settings.load(None)
+        assert settings.scraping.rate_limit_seconds == 2.0
+
+    def test_no_pointer_file_falls_back_to_defaults(self, tmp_path, monkeypatch):
+        from recipebrain.settings import Settings
+
+        monkeypatch.chdir(tmp_path)
+
+        # Point at non-existent pointer file
+        fake_user_config = tmp_path / "no_such_dir"
+        pointer = fake_user_config / "config-path"
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", pointer)
+
+        settings = Settings.load(None)
+        assert settings.scraping.rate_limit_seconds == 2.0
+
+    def test_pointer_paths_anchored_to_config_parent(self, tmp_path, monkeypatch):
+        """Paths in the pointed-to config resolve relative to its parent."""
+        from recipebrain.settings import Settings
+
+        monkeypatch.chdir(tmp_path)
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        cfg = data_dir / "recipebrain.toml"
+        cfg.write_text('[paths]\noutput_dir = "output"\n')
+
+        fake_user_config = tmp_path / "fake_config_home"
+        pointer = fake_user_config / "config-path"
+        fake_user_config.mkdir(parents=True)
+        pointer.write_text(str(cfg), encoding="utf-8")
+        monkeypatch.setattr("recipebrain.settings._CONFIG_PATH_FILE", pointer)
+
+        settings = Settings.load(None)
+        assert settings.paths.output_dir == str((data_dir / "output").resolve())

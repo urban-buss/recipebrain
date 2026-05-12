@@ -2,12 +2,19 @@
 
 Creates the directory structure and a ready-to-use ``recipebrain.toml``
 config file so users can get started quickly after ``pip install recipebrain``.
+
+Also writes a user-level pointer at ``~/.config/recipebrain/config-path``
+so subsequent commands auto-discover the config without ``--config`` or
+``RECIPEBRAIN_CONFIG``.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _SUBDIRS = [
     "output",
@@ -120,9 +127,26 @@ def init_data_dir(target: Path, *, force: bool = False) -> InitResult:
     config_path.write_text(_CONFIG_TEMPLATE, encoding="utf-8")
     config_written = True
 
+    _write_config_pointer(config_path)
+
     return InitResult(
         root=target,
         dirs_created=dirs_created,
         config_written=config_written,
         config_path=config_path,
     )
+
+
+def _write_config_pointer(config_path: Path) -> None:
+    """Write the absolute config path to ``~/.config/recipebrain/config-path``.
+
+    Silently skips on any filesystem error (permissions, read-only home, etc.)
+    so ``init`` never fails due to the pointer.
+    """
+    from recipebrain.settings import _CONFIG_PATH_FILE
+
+    try:
+        _CONFIG_PATH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CONFIG_PATH_FILE.write_text(str(config_path.resolve()), encoding="utf-8")
+    except OSError:
+        logger.debug("Could not write config pointer to %s", _CONFIG_PATH_FILE)
