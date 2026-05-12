@@ -199,6 +199,38 @@ def _cmd_log(args: argparse.Namespace) -> int:
     return 1 if result.startswith("Error") else 0
 
 
+def _cmd_init(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from recipebrain.init import init_data_dir
+
+    target = Path(args.path).resolve()
+    try:
+        result = init_data_dir(target, force=args.force)
+    except FileExistsError as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    print(f"Initialised recipebrain data directory: {result.root}")
+    if result.dirs_created:
+        for d in result.dirs_created:
+            print(f"  created {d.relative_to(result.root)}/")
+    if result.config_written:
+        print(f"  wrote   {result.config_path.name}")
+    print()
+    print("Next steps:")
+    print(f"  cd {result.root}")
+    print("  recipebrain doctor        # check everything is OK")
+    print("  recipebrain etl           # scrape recipes")
+    print()
+    print("Or point any command at this directory:")
+    print(f"  recipebrain --config {result.config_path} etl")
+    print()
+    print("Or set the environment variable once:")
+    print(f"  export RECIPEBRAIN_CONFIG={result.config_path}")
+    return 0
+
+
 def _cmd_dashboard(args: argparse.Namespace) -> int:
     from recipebrain.dashboard import run_dashboard
 
@@ -299,6 +331,19 @@ def main() -> int:
         "--scale-factor", type=float, default=None, help="Scale multiplier (e.g. 2.0 for doubled)"
     )
     sp_log.set_defaults(func=_cmd_log)
+
+    # init
+    sp_init = subparsers.add_parser("init", help="Initialise a data directory with default config")
+    sp_init.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Target directory to initialise (default: current directory)",
+    )
+    sp_init.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing recipebrain.toml"
+    )
+    sp_init.set_defaults(func=_cmd_init)
 
     # dashboard
     sp_dash = subparsers.add_parser("dashboard", help="Start observability dashboard")
