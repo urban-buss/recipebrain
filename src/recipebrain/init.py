@@ -127,6 +127,15 @@ def init_data_dir(target: Path, *, force: bool = False) -> InitResult:
     config_path.write_text(_CONFIG_TEMPLATE, encoding="utf-8")
     config_written = True
 
+    # Seed empty Parquet files so `doctor` and `info` see all entities
+    from recipebrain.writer import seed_empty_tables, write_schema_version
+
+    output_dir = target / "output"
+    seeded = seed_empty_tables(output_dir)
+    if seeded:
+        write_schema_version(output_dir)
+        logger.info("init: seeded %d empty Parquet files", len(seeded))
+
     _write_config_pointer(config_path)
 
     return InitResult(

@@ -15,6 +15,7 @@ from recipebrain.writer import (
     compute_schema_hash,
     read_schema_version,
     read_table,
+    seed_empty_tables,
     write_schema_version,
     write_table,
 )
@@ -215,3 +216,27 @@ class TestSchemaVersion:
     def test_read_returns_none_on_corrupt_file(self, tmp_path):
         (tmp_path / ".schema_version.json").write_text("not json", encoding="utf-8")
         assert read_schema_version(tmp_path) is None
+
+
+class TestSeedEmptyTables:
+    def test_creates_all_entities(self, tmp_path):
+        created = seed_empty_tables(tmp_path)
+        assert len(created) == len(SCHEMAS)
+        for entity in SCHEMAS:
+            path = tmp_path / f"{entity}.parquet"
+            assert path.exists()
+            table = read_table(entity, tmp_path)
+            assert table.num_rows == 0
+
+    def test_skips_existing_files(self, tmp_path):
+        write_table("recipes", [{"id": 1, "title": "X"}], tmp_path)
+        created = seed_empty_tables(tmp_path)
+        assert not any(p.name == "recipes.parquet" for p in created)
+        assert len(created) == len(SCHEMAS) - 1
+        # Existing data is preserved
+        assert read_table("recipes", tmp_path).num_rows == 1
+
+    def test_creates_output_dir_if_missing(self, tmp_path):
+        out = tmp_path / "new_output"
+        seed_empty_tables(out)
+        assert out.is_dir()

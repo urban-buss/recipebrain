@@ -7,9 +7,11 @@ from typing import ClassVar
 from unittest.mock import MagicMock
 
 from recipebrain.etl import (
+    _DEFAULT_BATCH_SIZE,
     EtlResult,
     _get_existing_urls,
     _get_source_adapters,
+    _get_source_id,
     _next_recipe_id,
     _reconcile_deleted,
     _run_source,
@@ -383,3 +385,74 @@ class TestBatchWriting:
         (tmp_path / "output").mkdir()
         results = run_etl(settings, source_filter="nonexistent", batch_size=10)
         assert results == []
+
+
+class TestInterruptSafety:
+    def test_flush_on_keyboard_interrupt(self, tmp_path):
+        """Data accumulated before Ctrl+C is flushed to disk."""
+        call_count = 0
+
+        class InterruptAfterTwo(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                nonlocal call_count
+                call_count += 1
+                if call_count > 2:
+                    raise KeyboardInterrupt
+                return super().fetch(url)
+
+        adapter = InterruptAfterTwo(urls=[f"https://a.ch/{i}" for i in range(5)])
+        result = _run_source(adapter, tmp_path)
+
+        assert result.fetched == 2
+        recipes = read_table("recipes", tmp_path)
+        assert recipes.num_rows == 2
+
+    def test_flush_on_interrupt_with_batch(self, tmp_path):
+        """Interrupt mid-batch still flushes the partial batch."""
+        call_count = 0
+
+        class InterruptAfterThree(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                nonlocal call_count
+                call_count += 1
+                if call_count > 3:
+                    raise KeyboardInterrupt
+                return super().fetch(url)
+
+        adapter = InterruptAfterThree(urls=[f"https://a.ch/{i}" for i in range(10)])
+        result = _run_source(adapter, tmp_path, batch_size=5)
+
+        assert result.fetched == 3
+        recipes = read_table("recipes", tmp_path)
+        assert recipes.num_rows == 3
+
+
+class TestDefaultBatchSize:
+    def test_default_batch_size_is_set(self):
+        assert _DEFAULT_BATCH_SIZE > 0
+
+    def test_default_batch_used_when_none(self, tmp_path):
+        """When batch_size is not specified, the default is used for periodic flushing."""
+        adapter = FakeAdapter(urls=[f"https://a.ch/{i}" for i in range(_DEFAULT_BATCH_SIZE + 5)])
+        result = _run_source(adapter, tmp_path)
+
+        assert result.fetched == _DEFAULT_BATCH_SIZE + 5
+        recipes = read_table("recipes", tmp_path)
+        assert recipes.num_rows == _DEFAULT_BATCH_SIZE + 5
+
+
+class TestGetSourceId:
+    def test_bettybossi_has_source_id(self):
+        adapter = FakeAdapter()
+        adapter.key = "bettybossi"  # type: ignore[misc]
+        assert _get_source_id(adapter) == 1
+
+    def test_all_sources_have_unique_ids(self):
+        ids = set()
+        for key in ("bettybossi", "fooby", "migusto", "swissmilk", "schweizerfleisch"):
+            adapter = FakeAdapter()
+            adapter.key = key  # type: ignore[misc]
+            sid = _get_source_id(adapter)
+            assert sid != 99, f"{key} should not fall back to 99"
+            ids.add(sid)
+        assert len(ids) == 5, "All source IDs should be unique"
