@@ -20,7 +20,9 @@ def _cmd_etl(args: argparse.Namespace) -> int:
     from recipebrain.settings import Settings
 
     settings = Settings.load(args.config)
-    results = run_etl(settings, source_filter=args.source, limit=args.limit)
+    results = run_etl(
+        settings, source_filter=args.source, limit=args.limit, batch_size=args.batch_size
+    )
 
     if not results:
         print("No sources processed.")
@@ -265,6 +267,13 @@ def main() -> int:
         type=int,
         default=None,
         help="Max new recipes to fetch per source (default: unlimited)",
+    )
+    sp_etl.add_argument(
+        "--batch-size",
+        "-b",
+        type=int,
+        default=None,
+        help="Flush to Parquet every N recipes (default: 50)",
     )
     sp_etl.set_defaults(func=_cmd_etl)
 

@@ -303,7 +303,7 @@ class TestEtlDryRun:
             EtlResult(source="migusto", discovered=0, errors=1, error_details=["SSL error"]),
         ]
 
-        args = argparse.Namespace(config=None, source=None, limit=0)
+        args = argparse.Namespace(config=None, source=None, limit=0, batch_size=None)
         with patch("recipebrain.etl.run_etl", return_value=results):
             with patch("recipebrain.settings.Settings.load"):
                 ret = _cmd_etl(args)
@@ -322,7 +322,7 @@ class TestEtlDryRun:
             EtlResult(source="fooby", discovered=5, fetched=0, errors=1),
         ]
 
-        args = argparse.Namespace(config=None, source=None, limit=10)
+        args = argparse.Namespace(config=None, source=None, limit=10, batch_size=None)
         with patch("recipebrain.etl.run_etl", return_value=results):
             with patch("recipebrain.settings.Settings.load"):
                 ret = _cmd_etl(args)

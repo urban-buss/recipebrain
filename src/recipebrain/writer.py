@@ -334,3 +334,21 @@ def read_schema_version(output_dir: Path) -> str | None:
         return data.get("schema_hash")
     except (json.JSONDecodeError, KeyError):
         return None
+
+
+def seed_empty_tables(output_dir: Path) -> list[Path]:
+    """Create empty Parquet files for all entities that don't yet exist.
+
+    Returns:
+        Paths of newly created files.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    created: list[Path] = []
+    for entity, schema in SCHEMAS.items():
+        path = _parquet_path(entity, output_dir)
+        if path.exists():
+            continue
+        table = pa.table({f.name: pa.array([], type=f.type) for f in schema}, schema=schema)
+        pq.write_table(table, path)
+        created.append(path)
+    return created

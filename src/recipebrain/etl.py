@@ -24,6 +24,8 @@ from recipebrain.writer import append_table, read_table, write_schema_version, w
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_BATCH_SIZE = 20
+
 
 @dataclass
 class EtlResult:
@@ -79,10 +81,11 @@ def _next_recipe_id(output_dir: Path) -> int:
 def _get_source_id(adapter: SourceAdapter) -> int:
     """Map adapter key to a source ID. Simple sequential assignment."""
     source_ids = {
-        "fooby": 1,
-        "migusto": 2,
-        "swissmilk": 3,
-        "schweizerfleisch": 4,
+        "bettybossi": 1,
+        "fooby": 2,
+        "migusto": 3,
+        "swissmilk": 4,
+        "schweizerfleisch": 5,
     }
     return source_ids.get(adapter.key, 99)
 
@@ -216,51 +219,56 @@ def _run_source(
     images_rows: list[dict] = []
     ingredients_rows: list[dict] = []
 
-    for url in urls:
-        if limit is not None and result.fetched >= limit:
-            break
+    effective_batch = batch_size if batch_size is not None else _DEFAULT_BATCH_SIZE
 
-        if url in existing_urls:
-            result.skipped += 1
-            continue
+    try:
+        for url in urls:
+            if limit is not None and result.fetched >= limit:
+                break
 
-        try:
-            raw = adapter.fetch(url)
-        except Exception as exc:
-            logger.warning("ETL: fetch failed for %s: %s", url, exc)
-            result.errors += 1
-            result.error_details.append(f"Fetch failed ({url}): {exc}")
-            continue
+            if url in existing_urls:
+                result.skipped += 1
+                continue
 
-        recipe_id = next_id
-        next_id += 1
+            try:
+                raw = adapter.fetch(url)
+            except Exception as exc:
+                logger.warning("ETL: fetch failed for %s: %s", url, exc)
+                result.errors += 1
+                result.error_details.append(f"Fetch failed ({url}): {exc}")
+                continue
 
-        recipe_rows.append(build_recipe_row(raw, source_id=source_id, recipe_id=recipe_id))
-        steps_rows.extend(build_recipe_steps_rows(recipe_id, raw.steps_raw))
-        images_rows.extend(build_recipe_images_rows(recipe_id, raw.image_urls))
-        ingredients_rows.extend(build_recipe_ingredients_rows(recipe_id, raw.ingredients_raw))
-        result.fetched += 1
+            recipe_id = next_id
+            next_id += 1
 
-        # Flush batch to disk periodically
-        if batch_size and len(recipe_rows) >= batch_size:
-            _flush_rows(
-                recipe_rows,
-                steps_rows,
-                images_rows,
-                ingredients_rows,
-                output_dir,
-                adapter.key,
-            )
+            recipe_rows.append(build_recipe_row(raw, source_id=source_id, recipe_id=recipe_id))
+            steps_rows.extend(build_recipe_steps_rows(recipe_id, raw.steps_raw))
+            images_rows.extend(build_recipe_images_rows(recipe_id, raw.image_urls))
+            ingredients_rows.extend(build_recipe_ingredients_rows(recipe_id, raw.ingredients_raw))
+            result.fetched += 1
 
-    # Write remaining rows
-    _flush_rows(
-        recipe_rows,
-        steps_rows,
-        images_rows,
-        ingredients_rows,
-        output_dir,
-        adapter.key,
-    )
+            # Flush batch to disk periodically
+            if effective_batch and len(recipe_rows) >= effective_batch:
+                _flush_rows(
+                    recipe_rows,
+                    steps_rows,
+                    images_rows,
+                    ingredients_rows,
+                    output_dir,
+                    adapter.key,
+                )
+    except KeyboardInterrupt:
+        logger.warning("ETL: interrupted — flushing %d buffered recipes to disk", len(recipe_rows))
+    finally:
+        # Always write remaining rows, even on Ctrl+C
+        _flush_rows(
+            recipe_rows,
+            steps_rows,
+            images_rows,
+            ingredients_rows,
+            output_dir,
+            adapter.key,
+        )
 
     # Soft-delete recipes whose URLs are no longer discovered
     deleted = _reconcile_deleted(source_id, set(urls), output_dir)

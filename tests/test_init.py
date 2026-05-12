@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from recipebrain.init import InitResult, init_data_dir
+from recipebrain.writer import SCHEMAS
 
 
 class TestInitDataDir:
@@ -97,6 +98,29 @@ class TestInitDataDir:
         result = init_data_dir(target)
         assert target.is_dir()
         assert result.config_path.exists()
+
+    def test_seeds_empty_parquet_files(self, tmp_path: Path):
+        """init creates empty Parquet files for all schema entities."""
+        target = tmp_path / "seeded"
+        init_data_dir(target)
+
+        output_dir = target / "output"
+        for entity in SCHEMAS:
+            assert (output_dir / f"{entity}.parquet").exists()
+
+    def test_seed_does_not_overwrite_existing_parquet(self, tmp_path: Path):
+        """Pre-existing Parquet files are left untouched by init."""
+        from recipebrain.writer import read_table, write_table
+
+        target = tmp_path / "preseed"
+        target.mkdir()
+        output_dir = target / "output"
+        write_table("recipes", [{"id": 1, "title": "Existing"}], output_dir)
+
+        init_data_dir(target)
+
+        recipes = read_table("recipes", output_dir)
+        assert recipes.num_rows == 1
 
     def test_writes_config_pointer(self, tmp_path: Path, monkeypatch):
         """init_data_dir writes a user-level config-path pointer."""
