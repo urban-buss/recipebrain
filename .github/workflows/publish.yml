@@ -31,4 +31,11 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Pre-pull publish action image
+        run: |
+          for i in 1 2 3 4 5; do
+            docker pull ghcr.io/pypa/gh-action-pypi-publish:release-v1 && break
+            echo "Attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
       - uses: pypa/gh-action-pypi-publish@release/v1
