@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "recipebrain"
-version = "0.0.8"
+version = "0.0.9"
 description = "Personal Swiss recipe knowledge base with promotion-aware meal planning, exposed via MCP. Companion to cellarbrain."
 readme = "README.md"
 license = "MIT"
