@@ -12,11 +12,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from recipebrain.exceptions import DataStaleError
 from recipebrain.images import download_recipe_images
 from recipebrain.query import invalidate_connection
 from recipebrain.settings import Settings
 from recipebrain.snapshot import create_snapshot
-from recipebrain.sources.base import SourceAdapter
+from recipebrain.sources.base import RawRecipe, SourceAdapter
 from recipebrain.transform import (
     build_recipe_images_rows,
     build_recipe_ingredients_rows,
@@ -40,6 +41,7 @@ class EtlResult:
     skipped: int = 0
     errors: int = 0
     soft_deleted: int = 0
+    validation_skipped: int = 0
     error_details: list[str] = field(default_factory=list)
 
 
@@ -129,7 +131,10 @@ def _next_run_id(output_dir: Path) -> int:
         if table.num_rows == 0:
             return 1
         return int(table.column("id").to_pylist()[-1]) + 1
+    except DataStaleError:
+        return 1
     except Exception:
+        logger.warning("ETL: failed to read etl_runs for next ID, defaulting to 1", exc_info=True)
         return 1
 
 
@@ -140,6 +145,29 @@ def _get_existing_urls(output_dir: Path) -> set[str]:
         return set(table.column("source_url").to_pylist())
     except Exception:
         return set()
+
+
+def _validate_recipe_content(raw: RawRecipe, url: str) -> bool:
+    """Check whether a raw recipe has sufficient content to be ingested.
+
+    Rejects recipes with empty ingredients AND empty steps (likely non-recipe
+    pages). Logs a warning for recipes with empty description but still allows
+    ingestion.
+
+    Returns:
+        True if the recipe should be ingested, False if it should be skipped.
+    """
+    has_ingredients = bool(raw.ingredients_raw)
+    has_steps = bool(raw.steps_raw)
+
+    if not has_ingredients and not has_steps:
+        logger.warning("ETL: skipping %s — empty ingredients and steps (likely not a recipe)", url)
+        return False
+
+    if not raw.description:
+        logger.warning("ETL: recipe %s has empty description — ingesting anyway", url)
+
+    return True
 
 
 def _seed_lookup_tables(output_dir: Path, adapters: list[SourceAdapter]) -> None:
@@ -299,6 +327,7 @@ def _log_etl_run(
         "skipped": result.skipped,
         "errors": result.errors,
         "soft_deleted": result.soft_deleted,
+        "validation_skipped": result.validation_skipped,
         "batch_size": effective_batch,
         "limit": limit,
         "error_summary": error_summary,
@@ -307,7 +336,7 @@ def _log_etl_run(
     try:
         append_table("etl_runs", [run_row], output_dir)
     except Exception:
-        logger.warning("ETL: failed to write etl_runs log for %s", result.source)
+        logger.warning("ETL: failed to write etl_runs log for %s", result.source, exc_info=True)
 
 
 def _run_source(
@@ -374,6 +403,10 @@ def _run_source(
                 logger.warning("ETL: fetch failed for %s: %s", url, exc)
                 result.errors += 1
                 result.error_details.append(f"Fetch failed ({url}): {exc}")
+                continue
+
+            if not _validate_recipe_content(raw, url):
+                result.validation_skipped += 1
                 continue
 
             recipe_id = next_id

@@ -119,10 +119,26 @@ class TestParseRecipe:
         recipe = parse_recipe(data)
         assert recipe.category == "Hauptgericht"
 
+    def test_extracts_recipe_category_from_list(self):
+        data = {
+            "name": "Test",
+            "recipeCategory": ["Hauptgericht", "Mittagessen"],
+        }
+        recipe = parse_recipe(data)
+        assert recipe.category == "Hauptgericht"
+
     def test_extracts_recipe_cuisine(self):
         data = {
             "name": "Test",
             "recipeCuisine": "Swiss",
+        }
+        recipe = parse_recipe(data)
+        assert recipe.cuisine == "Swiss"
+
+    def test_extracts_recipe_cuisine_from_list(self):
+        data = {
+            "name": "Test",
+            "recipeCuisine": ["Swiss", "European"],
         }
         recipe = parse_recipe(data)
         assert recipe.cuisine == "Swiss"

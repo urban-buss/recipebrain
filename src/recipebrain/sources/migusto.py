@@ -15,6 +15,7 @@ from typing import ClassVar
 from xml.etree import ElementTree
 
 import httpx
+from selectolax.parser import HTMLParser
 
 from recipebrain.parse.jsonld import extract_recipes, parse_recipe
 from recipebrain.settings import Settings
@@ -68,6 +69,9 @@ class MigustoAdapter(SourceAdapter):
     def fetch(self, url: str) -> RawRecipe:
         """Fetch a Migusto recipe page and extract data via JSON-LD.
 
+        Supplements JSON-LD with HTML extraction for classification metadata
+        when JSON-LD lacks category, cuisine, or keywords.
+
         Raises ValueError if the page contains no valid Recipe JSON-LD.
         """
         self._rate_limit()
@@ -80,7 +84,20 @@ class MigustoAdapter(SourceAdapter):
             raise ValueError(f"No Recipe JSON-LD found at {url}")
 
         language = _detect_language(url)
-        return parse_recipe(recipes[0], source_url=url, language=language)
+        raw = parse_recipe(recipes[0], source_url=url, language=language)
+
+        # Supplement with HTML extraction for classification when JSON-LD is incomplete
+        tree = HTMLParser(response.text)
+        if not raw.keywords:
+            raw.keywords = _extract_meta_keywords(tree)
+        if not raw.category:
+            raw.category = _extract_category_from_meta(tree)
+        if not raw.cuisine:
+            raw.cuisine = _extract_cuisine_from_tags(tree)
+        if not raw.difficulty:
+            raw.difficulty = _extract_difficulty_from_tags(tree)
+
+        return raw
 
     def close(self) -> None:
         """Close the HTTP client."""
@@ -132,3 +149,125 @@ def _detect_language(url: str) -> str:
     if "/it/" in url:
         return "it"
     return "de"
+
+
+def _extract_meta_keywords(tree: HTMLParser) -> list[str]:
+    """Extract keywords from HTML meta tag.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = ('<html><head><meta name="keywords"'
+        ...        ' content="pasta, italienisch, schnell"></head></html>')
+        >>> _extract_meta_keywords(HTMLParser(html))
+        ['pasta', 'italienisch', 'schnell']
+    """
+    meta = tree.css_first("meta[name='keywords']")
+    if meta:
+        content = meta.attributes.get("content") or ""
+        return [kw.strip() for kw in content.split(",") if kw.strip()]
+    return []
+
+
+def _extract_category_from_meta(tree: HTMLParser) -> str:
+    """Extract recipe category from page metadata or breadcrumb.
+
+    Migusto uses breadcrumb navigation and article:section meta tags.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = ('<html><head><meta property="article:section"'
+        ...        ' content="Hauptgerichte"></head></html>')
+        >>> _extract_category_from_meta(HTMLParser(html))
+        'Hauptgerichte'
+    """
+    # Try article:section meta tag
+    meta = tree.css_first("meta[property='article:section']")
+    if meta:
+        content = (meta.attributes.get("content") or "").strip()
+        if content:
+            return content
+
+    # Try breadcrumb navigation
+    skip = {"Home", "Migusto", "Rezepte", "Recettes"}
+    for node in tree.css("nav.breadcrumb a, .breadcrumb a, .breadcrumbs a"):
+        text = (node.text() or "").strip()
+        if text and text not in skip:
+            return text
+    return ""
+
+
+def _extract_cuisine_from_tags(tree: HTMLParser) -> str:
+    """Extract cuisine from recipe tag links.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<div class="recipe-tags"><a href="/tag/italienisch">Italienisch</a></div>'
+        >>> _extract_cuisine_from_tags(HTMLParser(html))
+        'Italienisch'
+    """
+    cuisine_keywords = {
+        "italienisch",
+        "italian",
+        "swiss",
+        "schweizer",
+        "asiatisch",
+        "asian",
+        "mexikanisch",
+        "mexican",
+        "indisch",
+        "indian",
+        "französisch",
+        "french",
+        "thai",
+        "japanisch",
+        "japanese",
+        "griechisch",
+        "greek",
+        "orientalisch",
+        "mediterran",
+        "mediterranean",
+    }
+    for node in tree.css(".recipe-tags a, .tag a, [class*='tag'] a"):
+        text = (node.text() or "").strip()
+        if text.lower() in cuisine_keywords:
+            return text
+    return ""
+
+
+def _extract_difficulty_from_tags(tree: HTMLParser) -> str:
+    """Extract difficulty from recipe tag links or recipe meta.
+
+    Migusto may show difficulty as a tag or in a recipe info section.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<div class="recipe-tags"><a href="/tag/einfach">Einfach</a></div>'
+        >>> _extract_difficulty_from_tags(HTMLParser(html))
+        'Einfach'
+    """
+    difficulty_values = {
+        "einfach",
+        "easy",
+        "leicht",
+        "simpel",
+        "mittel",
+        "medium",
+        "modéré",
+        "schwer",
+        "advanced",
+        "difficile",
+        "anspruchsvoll",
+        "facile",
+        "moyen",
+    }
+    for node in tree.css(".recipe-tags a, .tag a, [class*='tag'] a"):
+        text = (node.text() or "").strip()
+        if text.lower() in difficulty_values:
+            return text
+
+    # Fallback: recipe info/meta section
+    for node in tree.css(".recipe-info span, .recipe-meta span, .recipe-difficulty"):
+        text = (node.text() or "").strip()
+        if text.lower() in difficulty_values:
+            return text
+    return ""

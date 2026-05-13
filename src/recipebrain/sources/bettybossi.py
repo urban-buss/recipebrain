@@ -101,6 +101,11 @@ class BettybossiAdapter(SourceAdapter):
                     raw.keywords = _extract_breadcrumb_categories(tree)
                 else:
                     raw.keywords.extend(_extract_breadcrumb_categories(tree))
+            # Supplement classification from HTML when JSON-LD is incomplete
+            if not raw.category:
+                raw.category = _extract_category_from_breadcrumb(tree)
+            if not raw.cuisine:
+                raw.cuisine = _extract_cuisine_from_tags(tree)
             # Supplement with gallery images from HTML
             for img in _extract_gallery_images(tree):
                 if img not in raw.image_urls:
@@ -129,6 +134,8 @@ class BettybossiAdapter(SourceAdapter):
             keywords=_extract_keywords(tree),
             source_url=url,
             language=language,
+            category=_extract_category_from_breadcrumb(tree),
+            cuisine=_extract_cuisine_from_tags(tree),
         )
 
     def close(self) -> None:
@@ -438,3 +445,76 @@ def _detect_language(url: str) -> str:
     if "/fr/" in url:
         return "fr"
     return "de"
+
+
+def _extract_category_from_breadcrumb(tree: HTMLParser) -> str:
+    """Extract recipe category from breadcrumb navigation.
+
+    Returns the first non-generic breadcrumb text as the category.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<nav class="breadcrumb"><a>Home</a><a>Rezepte</a><a>Hauptgerichte</a></nav>'
+        >>> _extract_category_from_breadcrumb(HTMLParser(html))
+        'Hauptgerichte'
+    """
+    skip = {"Home", "Rezepte", "Recettes", "Accueil"}
+    for node in tree.css("nav.breadcrumb a, .breadcrumb-item a, .breadcrumb a"):
+        text = (node.text() or "").strip()
+        if text and text not in skip:
+            return text
+    return ""
+
+
+def _extract_cuisine_from_tags(tree: HTMLParser) -> str:
+    """Extract cuisine from recipe tag links or meta keywords.
+
+    Scans tag links and meta keywords for known cuisine identifiers.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<div class="recipe-tags"><a href="/tag/italienisch">Italienisch</a></div>'
+        >>> _extract_cuisine_from_tags(HTMLParser(html))
+        'Italienisch'
+    """
+    cuisine_keywords = {
+        "italienisch",
+        "italian",
+        "swiss",
+        "schweizer",
+        "asiatisch",
+        "asian",
+        "mexikanisch",
+        "mexican",
+        "indisch",
+        "indian",
+        "französisch",
+        "french",
+        "thai",
+        "japanisch",
+        "japanese",
+        "griechisch",
+        "greek",
+        "orientalisch",
+        "mediterran",
+        "mediterranean",
+        "chinesisch",
+        "chinese",
+        "koreanisch",
+        "korean",
+        "vietnamesisch",
+    }
+    for node in tree.css(".recipe-tags a, .tag a, [class*='tag'] a"):
+        text = (node.text() or "").strip()
+        if text.lower() in cuisine_keywords:
+            return text
+
+    # Fallback: scan meta keywords
+    meta = tree.css_first("meta[name='keywords']")
+    if meta:
+        content = meta.attributes.get("content") or ""
+        for kw in content.split(","):
+            kw = kw.strip()
+            if kw.lower() in cuisine_keywords:
+                return kw
+    return ""

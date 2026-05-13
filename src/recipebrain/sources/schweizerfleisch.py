@@ -212,6 +212,11 @@ def _parse_recipe_html(html_text: str, source_url: str, language: str) -> RawRec
     # Keywords
     keywords = _extract_keywords(tree)
 
+    # Category, difficulty, and cuisine from recipe-meta
+    category = _extract_category(tree)
+    difficulty = _extract_difficulty(tree)
+    cuisine = _extract_cuisine(tree)
+
     # Yield
     yield_amount = _extract_yield(tree)
 
@@ -228,6 +233,9 @@ def _parse_recipe_html(html_text: str, source_url: str, language: str) -> RawRec
         keywords=keywords,
         source_url=source_url,
         language=language,
+        category=category,
+        difficulty=difficulty,
+        cuisine=cuisine,
     )
 
 
@@ -368,8 +376,12 @@ def _extract_time(tree: HTMLParser, label: str) -> str:
 
 
 def _extract_images(tree: HTMLParser) -> list[str]:
-    """Extract recipe images from OG meta, data-src, or src attributes."""
+    """Extract recipe images from OG meta, data-src, src, and gallery elements.
+
+    Collects the primary image and supplements with gallery/carousel images.
+    """
     images: list[str] = []
+    seen: set[str] = set()
 
     # Primary: og:image meta tag (full URL, high quality)
     og = tree.css_first("meta[property='og:image']")
@@ -377,23 +389,66 @@ def _extract_images(tree: HTMLParser) -> list[str]:
         src = (og.attributes.get("content") or "").strip()
         if src:
             images.append(src)
-            return images
+            seen.add(src)
 
-    # Fallback: img[data-src] (lazy-loaded images)
-    for img in tree.css("img[data-src]"):
-        src = img.attributes.get("data-src") or ""
-        if src and "/sites/" in src and "/icon" not in src:
-            full_url = f"https://schweizerfleisch.ch{src}" if src.startswith("/") else src
-            if full_url not in images:
-                images.append(full_url)
-                return images
+    # Fallback primary: img[data-src] (lazy-loaded images)
+    if not images:
+        for img in tree.css("img[data-src]"):
+            src = img.attributes.get("data-src") or ""
+            if src and "/sites/" in src and "/icon" not in src:
+                full_url = f"https://schweizerfleisch.ch{src}" if src.startswith("/") else src
+                if full_url not in seen:
+                    images.append(full_url)
+                    seen.add(full_url)
+                    break
 
-    # Last resort: img[src]
-    for img in tree.css("img[src]"):
-        src = img.attributes.get("src") or ""
-        if src and ("/sites/" in src or "/media/" in src) and src not in images:
-            if "/sprites/" not in src and "/icon" not in src:
-                images.append(src)
+    # Last resort primary: img[src]
+    if not images:
+        for img in tree.css("img[src]"):
+            src = img.attributes.get("src") or ""
+            if src and ("/sites/" in src or "/media/" in src) and src not in seen:
+                if "/sprites/" not in src and "/icon" not in src:
+                    images.append(src)
+                    seen.add(src)
+                    break
+
+    # Gallery/carousel images
+    for img_url in _extract_gallery_images(tree):
+        if img_url not in seen:
+            images.append(img_url)
+            seen.add(img_url)
+
+    return images
+
+
+def _extract_gallery_images(tree: HTMLParser) -> list[str]:
+    """Extract additional recipe images from Schweizer Fleisch gallery elements.
+
+    Scans for gallery, slider, and step-level image elements beyond the
+    primary hero image. Returns deduplicated image URLs from the site.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = ('<div class="recipe-gallery">'
+        ...        '<img src="/sites/schweizerfleisch/files/gallery1.jpg"></div>')
+        >>> _extract_gallery_images(HTMLParser(html))
+        ['https://schweizerfleisch.ch/sites/schweizerfleisch/files/gallery1.jpg']
+    """
+    images: list[str] = []
+    seen: set[str] = set()
+    selectors = (
+        ".recipe-gallery img, .recipe-slider img, .recipe-carousel img, "
+        ".recipe-images img, .field--name-field-recipe-gallery img, "
+        ".preparation__step img"
+    )
+    for node in tree.css(selectors):
+        src = (node.attributes.get("data-src") or node.attributes.get("src") or "").strip()
+        if not src or "/icon" in src or "/sprites/" in src:
+            continue
+        full_url = f"https://schweizerfleisch.ch{src}" if src.startswith("/") else src
+        if full_url not in seen:
+            images.append(full_url)
+            seen.add(full_url)
     return images
 
 
@@ -405,6 +460,117 @@ def _extract_keywords(tree: HTMLParser) -> list[str]:
         if text and text not in keywords:
             keywords.append(text)
     return keywords
+
+
+def _extract_category(tree: HTMLParser) -> str:
+    """Extract recipe category from breadcrumb or tag links.
+
+    Looks for links containing category-like paths or specific keywords
+    in the recipe tags that indicate the course type.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<a href="/kategorie/hauptgerichte">Hauptgerichte</a>'
+        >>> _extract_category(HTMLParser(html))
+        'Hauptgerichte'
+    """
+    # Try breadcrumb links with category patterns
+    for node in tree.css('a[href*="/kategorie/"], a[href*="/catégorie/"]'):
+        text = (node.text() or "").strip()
+        if text:
+            return text
+
+    # Fallback: look for category in recipe-meta section
+    for node in tree.css(".recipe-meta span, .recipe-category"):
+        text = (node.text() or "").strip()
+        lower = text.lower()
+        if lower in (
+            "hauptgericht",
+            "vorspeise",
+            "dessert",
+            "beilage",
+            "plat principal",
+            "entrée",
+            "accompagnement",
+        ):
+            return text
+    return ""
+
+
+def _extract_difficulty(tree: HTMLParser) -> str:
+    """Extract recipe difficulty from the recipe meta section.
+
+    Schweizer Fleisch shows difficulty as plain text in the recipe-meta div.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<div class="recipe-meta"><span>Einfach</span></div>'
+        >>> _extract_difficulty(HTMLParser(html))
+        'Einfach'
+    """
+    difficulty_values = {
+        "einfach",
+        "easy",
+        "leicht",
+        "simpel",
+        "mittel",
+        "medium",
+        "modéré",
+        "schwer",
+        "advanced",
+        "difficile",
+        "anspruchsvoll",
+    }
+    for node in tree.css(".recipe-meta span, .recipe-meta div, .recipe-difficulty"):
+        text = (node.text() or "").strip()
+        if text.lower() in difficulty_values:
+            return text
+    return ""
+
+
+def _extract_cuisine(tree: HTMLParser) -> str:
+    """Extract cuisine from recipe tags or meta description.
+
+    Scans tag links for known cuisine identifiers.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<a href="/schlagwort/asiatisch">Asiatisch</a>'
+        >>> _extract_cuisine(HTMLParser(html))
+        'Asiatisch'
+    """
+    cuisine_keywords = {
+        "italienisch",
+        "italian",
+        "swiss",
+        "schweizer",
+        "asiatisch",
+        "asian",
+        "mexikanisch",
+        "mexican",
+        "indisch",
+        "indian",
+        "französisch",
+        "french",
+        "thai",
+        "japanisch",
+        "japanese",
+        "griechisch",
+        "greek",
+        "orientalisch",
+        "mediterran",
+        "mediterranean",
+        "chinesisch",
+        "chinese",
+        "koreanisch",
+        "korean",
+        "vietnamesisch",
+    }
+    for link in tree.css('a[href*="/schlagwort/"]'):
+        text = (link.text() or "").strip()
+        if text.lower() in cuisine_keywords:
+            return text
+    return ""
 
 
 def _extract_yield(tree: HTMLParser) -> str:

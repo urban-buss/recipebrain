@@ -32,10 +32,10 @@ class ParsedIngredient:
     optional: bool = False
 
 
-# Optional ingredient markers common in Swiss-German recipe text
+# Optional ingredient markers common in Swiss-German and French recipe text
 _OPTIONAL_MARKERS = re.compile(
     r"(?:^|\b)"
-    r"(?:optional|nach Belieben|evt(?:l)?\.?|evtl\.?|fakultativ)"
+    r"(?:optional|nach Belieben|evt(?:l)?\.?|evtl\.?|fakultativ|facultatif|selon go[uû]t)"
     r"(?:\b|(?=[\s:,;.])|$)",
     re.IGNORECASE,
 )
@@ -61,12 +61,14 @@ _FRACTIONS: dict[str, float] = {
 
 # Known units (case-insensitive matching, stored normalised)
 _UNITS: dict[str, str] = {
+    # Metric
     "g": "g",
     "kg": "kg",
     "ml": "ml",
     "cl": "cl",
     "dl": "dl",
     "l": "l",
+    # German
     "el": "EL",
     "tl": "TL",
     "msp": "Msp",
@@ -91,6 +93,24 @@ _UNITS: dict[str, str] = {
     "tropfen": "Tropfen",
     "tasse": "Tasse",
     "tassen": "Tasse",
+    # French
+    "pincée": "Prise",
+    "pincee": "Prise",
+    "branche": "Zweig",
+    "branches": "Zweig",
+    "brin": "Zweig",
+    "brins": "Zweig",
+    "tranche": "Scheibe",
+    "tranches": "Scheibe",
+    "gousse": "Zehe",
+    "gousses": "Zehe",
+    "botte": "Bund",
+    "bottes": "Bund",
+    "bouquet": "Bund",
+    "sachet": "Packung",
+    "sachets": "Packung",
+    "paquet": "Packung",
+    "paquets": "Packung",
 }
 
 # Pattern: optional quantity (number or fraction), optional unit, rest is ingredient
@@ -104,6 +124,19 @@ _QUANTITY_RE = re.compile(
     r"$",
     re.UNICODE,
 )
+
+# Multi-token French unit abbreviations (tried before single-word lookup)
+_MULTI_TOKEN_UNITS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"c\.\s*à\s*s\.?", re.IGNORECASE), "EL"),
+    (re.compile(r"c\.\s*à\s*c\.?", re.IGNORECASE), "TL"),
+    (re.compile(r"c\.s\.?", re.IGNORECASE), "EL"),
+    (re.compile(r"c\.c\.?", re.IGNORECASE), "TL"),
+    (re.compile(r"cs\.?", re.IGNORECASE), "EL"),
+    (re.compile(r"cc\.?", re.IGNORECASE), "TL"),
+]
+
+# French preposition between unit and ingredient (e.g. "de", "d'", "du")
+_FRENCH_PREP_RE = re.compile(r"^(?:de\s+|d['']\s*|du\s+)", re.IGNORECASE)
 
 
 def parse_ingredient_line(line: str) -> ParsedIngredient:
@@ -183,9 +216,20 @@ def _parse_quantity(whole: str | None, frac: str | None) -> float | None:
 def _extract_unit(text: str) -> tuple[str | None, str]:
     """Try to extract a known unit from the beginning of text.
 
+    Handles single-word units, dot-separated French abbreviations (c.s., c.c.),
+    and multi-word French abbreviations (c. à s., c. à c.).
+
     Returns:
         (normalised_unit, remaining_text) or (None, original_text).
     """
+    # Try multi-token patterns first (French dot-separated abbreviations)
+    for pattern, canonical in _MULTI_TOKEN_UNITS:
+        m = pattern.match(text)
+        if m:
+            remainder = text[m.end() :].strip()
+            remainder = _FRENCH_PREP_RE.sub("", remainder).strip()
+            return canonical, remainder
+
     # Try first word as unit
     parts = text.split(None, 1)
     if not parts:
@@ -196,6 +240,7 @@ def _extract_unit(text: str) -> tuple[str | None, str]:
 
     if normalised:
         remainder = parts[1] if len(parts) > 1 else ""
+        remainder = _FRENCH_PREP_RE.sub("", remainder).strip()
         return normalised, remainder
 
     return None, text

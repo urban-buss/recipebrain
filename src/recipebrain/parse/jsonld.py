@@ -64,8 +64,8 @@ def parse_recipe(data: dict, source_url: str = "", language: str = "de") -> RawR
         keywords=_extract_keywords(data.get("keywords")),
         source_url=source_url,
         language=language,
-        category=data.get("recipeCategory", "") or "",
-        cuisine=data.get("recipeCuisine", "") or "",
+        category=_extract_first_string(data.get("recipeCategory")),
+        cuisine=_extract_first_string(data.get("recipeCuisine")),
     )
 
 
@@ -189,3 +189,25 @@ def _extract_keywords(raw: str | list | None) -> list[str]:
     if isinstance(raw, list):
         return [str(kw).strip() for kw in raw if str(kw).strip()]
     return []
+
+
+def _extract_first_string(raw: str | list | None) -> str:
+    """Extract a single string value from a field that may be a string or list.
+
+    Some sites encode recipeCategory/recipeCuisine as arrays.
+
+    Examples:
+        >>> _extract_first_string("Hauptgericht")
+        'Hauptgericht'
+        >>> _extract_first_string(["Hauptgericht", "Mittagessen"])
+        'Hauptgericht'
+        >>> _extract_first_string(None)
+        ''
+    """
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, list) and raw:
+        return str(raw[0]).strip()
+    return ""

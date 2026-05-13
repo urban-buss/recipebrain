@@ -15,6 +15,7 @@ from typing import ClassVar
 from xml.etree import ElementTree
 
 import httpx
+from selectolax.parser import HTMLParser
 
 from recipebrain.parse.jsonld import extract_recipes, parse_recipe
 from recipebrain.settings import Settings
@@ -68,6 +69,9 @@ class FoobyAdapter(SourceAdapter):
     def fetch(self, url: str) -> RawRecipe:
         """Fetch a Fooby recipe page and extract data via JSON-LD.
 
+        Supplements JSON-LD with HTML extraction for classification metadata
+        when JSON-LD lacks category, cuisine, or keywords.
+
         Raises ValueError if the page contains no valid Recipe JSON-LD.
         """
         self._rate_limit()
@@ -81,7 +85,18 @@ class FoobyAdapter(SourceAdapter):
 
         # Use the first Recipe found on the page
         language = _detect_language(url)
-        return parse_recipe(recipes[0], source_url=url, language=language)
+        raw = parse_recipe(recipes[0], source_url=url, language=language)
+
+        # Supplement with HTML extraction for classification when JSON-LD is incomplete
+        tree = HTMLParser(response.text)
+        if not raw.keywords:
+            raw.keywords = _extract_meta_keywords(tree)
+        if not raw.category:
+            raw.category = _extract_category_from_breadcrumb(tree)
+        if not raw.cuisine:
+            raw.cuisine = _extract_cuisine_from_tags(tree)
+
+        return raw
 
     def close(self) -> None:
         """Close the HTTP client."""
@@ -141,3 +156,96 @@ def _detect_language(url: str) -> str:
     if "/it/" in url:
         return "it"
     return "de"
+
+
+def _extract_meta_keywords(tree: HTMLParser) -> list[str]:
+    """Extract keywords from HTML meta tag.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = ('<html><head><meta name="keywords"'
+        ...        ' content="poulet, reis, einfach"></head></html>')
+        >>> _extract_meta_keywords(HTMLParser(html))
+        ['poulet', 'reis', 'einfach']
+    """
+    meta = tree.css_first("meta[name='keywords']")
+    if meta:
+        content = meta.attributes.get("content") or ""
+        return [kw.strip() for kw in content.split(",") if kw.strip()]
+    return []
+
+
+def _extract_category_from_breadcrumb(tree: HTMLParser) -> str:
+    """Extract recipe category from breadcrumb navigation.
+
+    Fooby uses breadcrumb links that may contain the recipe category.
+    Returns the first non-generic breadcrumb text as the category.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = ('<nav class="breadcrumb"><a href="/">Home</a>'
+        ...        '<a href="/rezepte">Rezepte</a>'
+        ...        '<a href="/hauptgerichte">Hauptgerichte</a></nav>')
+        >>> _extract_category_from_breadcrumb(HTMLParser(html))
+        'Hauptgerichte'
+    """
+    skip = {"Home", "Fooby", "Rezepte", "Recettes", "Ricette"}
+    for node in tree.css("nav.breadcrumb a, .breadcrumb a, .breadcrumbs a"):
+        text = (node.text() or "").strip()
+        if text and text not in skip:
+            return text
+    return ""
+
+
+def _extract_cuisine_from_tags(tree: HTMLParser) -> str:
+    """Extract cuisine from recipe tag links or meta keywords.
+
+    Scans tag links and meta keywords for known cuisine identifiers.
+
+    Examples:
+        >>> from selectolax.parser import HTMLParser
+        >>> html = '<div class="recipe-tags"><a href="/tag/asiatisch">Asiatisch</a></div>'
+        >>> _extract_cuisine_from_tags(HTMLParser(html))
+        'Asiatisch'
+    """
+    cuisine_keywords = {
+        "italienisch",
+        "italian",
+        "swiss",
+        "schweizer",
+        "asiatisch",
+        "asian",
+        "mexikanisch",
+        "mexican",
+        "indisch",
+        "indian",
+        "französisch",
+        "french",
+        "thai",
+        "japanisch",
+        "japanese",
+        "griechisch",
+        "greek",
+        "orientalisch",
+        "mediterran",
+        "mediterranean",
+        "chinesisch",
+        "chinese",
+        "koreanisch",
+        "korean",
+        "vietnamesisch",
+    }
+    for node in tree.css(".recipe-tags a, .tag a, [class*='tag'] a"):
+        text = (node.text() or "").strip()
+        if text.lower() in cuisine_keywords:
+            return text
+
+    # Fallback: scan meta keywords
+    meta = tree.css_first("meta[name='keywords']")
+    if meta:
+        content = meta.attributes.get("content") or ""
+        for kw in content.split(","):
+            kw = kw.strip()
+            if kw.lower() in cuisine_keywords:
+                return kw
+    return ""

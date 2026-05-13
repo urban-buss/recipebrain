@@ -210,6 +210,7 @@ SCHEMAS: dict[str, pa.Schema] = {
             ("skipped", pa.int32()),
             ("errors", pa.int32()),
             ("soft_deleted", pa.int32()),
+            ("validation_skipped", pa.int32()),
             ("batch_size", pa.int16()),
             ("limit", pa.int32()),
             ("error_summary", pa.string()),

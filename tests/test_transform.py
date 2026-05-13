@@ -48,7 +48,7 @@ class TestBuildRecipeRow:
 
         assert row["id"] == 42
         assert row["source_id"] == 1
-        assert row["source_external_id"] == "pouletbrust-12345"
+        assert row["source_external_id"] == "pouletbrust-12345-de"
         assert row["source_url"] == "https://fooby.ch/de/rezepte/pouletbrust-12345"
         assert row["title"] == "Pouletbrust mit Lauch und Reis"
         assert row["title_normalised"] == "pouletbrust mit lauch und reis"
@@ -311,6 +311,12 @@ class TestComputeContentHash:
         raw2.ingredients_raw = ["something else"]
         assert _compute_content_hash(raw1) != _compute_content_hash(raw2)
 
+    def test_different_language_different_hash(self):
+        raw1 = _full_raw_recipe()
+        raw2 = _full_raw_recipe()
+        raw2.language = "fr"
+        assert _compute_content_hash(raw1) != _compute_content_hash(raw2)
+
     def test_hash_is_hex_sha256(self):
         raw = _full_raw_recipe()
         h = _compute_content_hash(raw)
@@ -320,18 +326,37 @@ class TestComputeContentHash:
 
 class TestExtractExternalId:
     @pytest.mark.parametrize(
-        ("url", "expected"),
+        ("url", "language", "expected"),
         [
-            ("https://fooby.ch/de/rezepte/pouletbrust-12345", "pouletbrust-12345"),
-            ("https://migusto.migros.ch/de/rezepte/pasta-carbonara.html", "pasta-carbonara"),
-            ("https://example.com/recipe/test.htm", "test"),
-            ("https://example.com/a/b/c/", "c"),
-            ("", ""),
-            ("https://example.com/", "example.com"),
+            ("https://fooby.ch/de/rezepte/pouletbrust-12345", "de", "pouletbrust-12345-de"),
+            ("https://fooby.ch/fr/recettes/pouletbrust-12345", "fr", "pouletbrust-12345-fr"),
+            (
+                "https://migusto.migros.ch/de/rezepte/pasta-carbonara.html",
+                "de",
+                "pasta-carbonara-de",
+            ),
+            ("https://example.com/recipe/test.htm", "en", "test-en"),
+            ("https://example.com/a/b/c/", "de", "c-de"),
+            ("", "de", ""),
+            ("https://example.com/", "de", "example.com-de"),
+            # Slug already ends with language suffix — no double-append
+            (
+                "https://bettybossi.ch/fr/Rezept/ShowRezept/BB_ABRE120801_0002A-40-fr",
+                "fr",
+                "BB_ABRE120801_0002A-40-fr",
+            ),
+            (
+                "https://bettybossi.ch/de/Rezept/ShowRezept/BB_ABRE120801_0002A-40-de",
+                "de",
+                "BB_ABRE120801_0002A-40-de",
+            ),
+            # No language provided — backward compat
+            ("https://fooby.ch/de/rezepte/pouletbrust-12345", None, "pouletbrust-12345"),
+            ("https://migusto.migros.ch/de/rezepte/pasta-carbonara.html", None, "pasta-carbonara"),
         ],
     )
-    def test_extract(self, url, expected):
-        assert _extract_external_id(url) == expected
+    def test_extract(self, url, language, expected):
+        assert _extract_external_id(url, language) == expected
 
 
 class TestParseServings:
@@ -515,3 +540,42 @@ class TestExtractClassification:
     def test_keywords_none(self):
         result = extract_classification({"keywords": None})
         assert result == {"course": None, "cuisine": None, "difficulty": None}
+
+    def test_raw_recipe_basic(self):
+        raw = RawRecipe(
+            title="Grilled Chicken Salad",
+            ingredients_raw=["200g Pouletbrust"],
+            steps_raw=["Poulet grillieren"],
+            category="Hauptgericht",
+        )
+        result = extract_classification(raw)
+        assert result == {"course": "main", "cuisine": None, "difficulty": None}
+
+    def test_raw_recipe_full_classification(self):
+        raw = RawRecipe(
+            title="Fondue",
+            ingredients_raw=[],
+            steps_raw=[],
+            category="Hauptgericht",
+            cuisine="Swiss",
+            difficulty="Einfach",
+            keywords=["Schweizer Küche"],
+        )
+        result = extract_classification(raw)
+        assert result == {"course": "main", "cuisine": "swiss", "difficulty": "easy"}
+
+    def test_raw_recipe_empty_fields(self):
+        raw = RawRecipe(title="Minimal")
+        result = extract_classification(raw)
+        assert result == {"course": None, "cuisine": None, "difficulty": None}
+
+    def test_raw_recipe_keyword_fallback(self):
+        raw = RawRecipe(
+            title="Mystery Dish",
+            ingredients_raw=[],
+            steps_raw=[],
+            keywords=["Dessert", "einfach"],
+        )
+        result = extract_classification(raw)
+        assert result["course"] == "dessert"
+        assert result["difficulty"] == "easy"
