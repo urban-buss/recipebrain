@@ -9,7 +9,10 @@ from recipebrain.normalise.ingredients import (
     SEED_CATALOGUE,
     CanonicalIngredient,
     _depluralize,
+    _depluralize_french,
     _strip_adjectives,
+    _strip_french_adjectives,
+    _strip_french_context,
     all_keys,
     catalogue_to_rows,
     get_ingredient,
@@ -382,3 +385,130 @@ class TestCatalogueSize:
         assert "harissa" in keys
         assert "stock-beef" in keys
         assert "pomegranate-seeds" in keys
+
+
+# ---------------------------------------------------------------------------
+# Tests: French ingredient resolution (issue #020)
+# ---------------------------------------------------------------------------
+
+
+class TestFrenchContextStripping:
+    """Test that French articles, prepositions, and quantity phrases are stripped."""
+
+    @pytest.mark.parametrize(
+        ("input_text", "expected"),
+        [
+            ("un peu de poivre", "poivre"),
+            ("du beurre", "beurre"),
+            ("de la farine", "farine"),
+            ("des oignons", "oignons"),
+            ("de l'huile", "huile"),
+            ("une pincee de sel", "sel"),
+            ("un filet de citron", "citron"),
+            ("une poignee de persil", "persil"),
+        ],
+    )
+    def test_strip_french_context(self, input_text: str, expected: str) -> None:
+        from recipebrain.normalise.ingredients import _normalise
+
+        normalised = _normalise(input_text)
+        assert _strip_french_context(normalised) == expected
+
+
+class TestFrenchAdjectiveStripping:
+    """Test that French adjectives are stripped from ingredient text."""
+
+    @pytest.mark.parametrize(
+        ("input_text", "expected"),
+        [
+            ("poivre noir", "poivre"),
+            ("petit oignon", "oignon"),
+            ("sel fin", "sel"),
+            ("creme fraiche", "creme"),
+        ],
+    )
+    def test_strip_french_adjectives(self, input_text: str, expected: str) -> None:
+        assert _strip_french_adjectives(input_text) == expected
+
+
+class TestFrenchDepluralize:
+    """Test French plural-to-singular conversion."""
+
+    def test_s_suffix(self) -> None:
+        candidates = _depluralize_french("oignons")
+        assert "oignon" in candidates
+
+    def test_x_suffix(self) -> None:
+        candidates = _depluralize_french("choux")
+        assert "chou" in candidates
+
+    def test_aux_to_al(self) -> None:
+        candidates = _depluralize_french("animaux")
+        assert "animal" in candidates
+
+    def test_short_word_not_depluralized(self) -> None:
+        # Words of 3 chars or less should not be depluralized
+        candidates = _depluralize_french("les")
+        assert candidates == []
+
+
+class TestFrenchIngredientResolution:
+    """Integration tests: French ingredient lines should resolve to canonical keys.
+
+    These are the exact patterns from issue #020 that were failing.
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Direct French display names (already indexed)
+            ("Beurre", "butter"),
+            ("Sel", "salt"),
+            ("Poivre", "pepper-black"),
+            ("Farine", "flour"),
+            ("Oignon", "onion"),
+            ("Persil", "parsley"),
+            ("Ail", "garlic"),
+            ("Riz", "rice"),
+            ("Lait", "milk"),
+            # With articles/prepositions
+            ("du beurre", "butter"),
+            ("du sel", "salt"),
+            ("du poivre", "pepper-black"),
+            ("de la farine", "flour"),
+            ("de l'ail", "garlic"),
+            # With quantity phrases (from issue description)
+            ("un peu de poivre", "pepper-black"),
+            ("une pincée de sel", "salt"),
+            # With French elided forms
+            ("d'huile d'olive", "olive-oil"),
+            # French plurals
+            ("oignons", "onion"),
+            ("carottes", "carrot"),
+            ("tomates", "tomato"),
+            # French display_fr names
+            ("Huile d'olive", "olive-oil"),
+            ("Crème", "cream"),
+            ("Citron", "lemon"),
+            ("Pomme de terre", "potato"),
+            ("Viande hachée", "beef-minced"),
+            ("Bouillon de poulet", "stock-chicken"),
+            ("Vin blanc", "white-wine"),
+            ("Vin rouge", "red-wine"),
+        ],
+    )
+    def test_french_ingredients_resolve(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # French quantity+unit prefix patterns from issue
+            ("0.5 c.c. de sel", "salt"),
+            ("1 pincée de sel", "salt"),
+            ("2 c.s. de beurre", "butter"),
+            ("3 gousses d'ail", "garlic"),
+        ],
+    )
+    def test_french_quantity_unit_prefix(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected

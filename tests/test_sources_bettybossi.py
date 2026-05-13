@@ -241,6 +241,71 @@ class TestBettybossiFetch:
         assert "Home" not in recipe.keywords
         assert "Rezepte" not in recipe.keywords
 
+    def test_fetch_html_fallback_extracts_category_and_cuisine(self):
+        """HTML fallback path should extract category from breadcrumbs and cuisine from tags."""
+        html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta name="description" content="Ein einfacher Gratin.">
+    <meta name="keywords" content="thai, curry">
+    <meta property="og:image" content="https://media.bettybossi.ch/test.jpg">
+</head>
+<body>
+    <nav class="breadcrumb">
+        <a href="/">Home</a>
+        <a href="/r">Rezepte</a>
+        <a href="/r/h">Hauptgerichte</a>
+    </nav>
+    <h1>Thai Curry</h1>
+    <ul>
+        <li itemprop="recipeIngredient">400 ml Kokosmilch</li>
+    </ul>
+    <div itemprop="recipeInstructions">
+        <div itemprop="text">Alles kochen.</div>
+    </div>
+</body>
+</html>"""
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://www.bettybossi.ch/de/rezepte/rezept/thai-curry-99998/")
+
+        assert recipe.category == "Hauptgerichte"
+        assert recipe.cuisine == "thai"
+
+    def test_fetch_jsonld_supplements_category_from_breadcrumb(self):
+        """When JSON-LD lacks recipeCategory, category should come from breadcrumb."""
+        html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Pasta",
+ "recipeIngredient":["200g Spaghetti"],
+ "recipeInstructions":[{"@type":"HowToStep","text":"Cook."}],
+ "keywords":"pasta, schnell"}
+</script>
+</head>
+<body>
+    <nav class="breadcrumb">
+        <a href="/">Home</a>
+        <a href="/r">Rezepte</a>
+        <a href="/r/h">Hauptgerichte</a>
+    </nav>
+</body>
+</html>"""
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://www.bettybossi.ch/de/rezepte/rezept/pasta-99997/")
+
+        assert recipe.category == "Hauptgerichte"
+
 
 class TestHelpers:
     def test_is_recipe_url_de(self):

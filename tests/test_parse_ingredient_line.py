@@ -204,6 +204,92 @@ class TestOptionalDetection:
         assert result.unit == "EL"
 
 
+class TestFrenchUnits:
+    """French unit abbreviation parsing (issue #022)."""
+
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            (
+                "3 c.s. de sucre",
+                ParsedIngredient(3.0, "EL", "sucre", None),
+            ),
+            (
+                "2 c.c. de sel",
+                ParsedIngredient(2.0, "TL", "sel", None),
+            ),
+            (
+                "1 c. à s. de beurre",
+                ParsedIngredient(1.0, "EL", "beurre", None),
+            ),
+            (
+                "½ c. à c. de cannelle",
+                ParsedIngredient(0.5, "TL", "cannelle", None),
+            ),
+            (
+                "1 pincée de sel",
+                ParsedIngredient(1.0, "Prise", "sel", None),
+            ),
+            (
+                "2 branches de thym",
+                ParsedIngredient(2.0, "Zweig", "thym", None),
+            ),
+            (
+                "1 brin de romarin",
+                ParsedIngredient(1.0, "Zweig", "romarin", None),
+            ),
+            (
+                "4 tranches de jambon",
+                ParsedIngredient(4.0, "Scheibe", "jambon", None),
+            ),
+            (
+                "2 gousses d'ail, émincées",
+                ParsedIngredient(2.0, "Zehe", "ail", "émincées"),
+            ),
+            (
+                "1 botte de persil",
+                ParsedIngredient(1.0, "Bund", "persil", None),
+            ),
+            (
+                "1 bouquet de basilic",
+                ParsedIngredient(1.0, "Bund", "basilic", None),
+            ),
+            (
+                "1 sachet de levure",
+                ParsedIngredient(1.0, "Packung", "levure", None),
+            ),
+        ],
+    )
+    def test_french_units(self, line, expected):
+        assert parse_ingredient_line(line) == expected
+
+    def test_french_cs_without_dots(self):
+        result = parse_ingredient_line("2 cs de moutarde")
+        assert result.unit == "EL"
+        assert result.ingredient == "moutarde"
+
+    def test_french_cc_without_dots(self):
+        result = parse_ingredient_line("1 cc de vanille")
+        assert result.unit == "TL"
+        assert result.ingredient == "vanille"
+
+    def test_french_optional_facultatif(self):
+        result = parse_ingredient_line("1 pincée de muscade, facultatif")
+        assert result.optional is True
+        assert result.unit == "Prise"
+        assert result.ingredient == "muscade"
+
+    def test_french_optional_selon_gout(self):
+        result = parse_ingredient_line("selon goût: sel et poivre")
+        assert result.optional is True
+        assert result.ingredient == "sel et poivre"
+
+    def test_french_du_preposition(self):
+        result = parse_ingredient_line("3 c.s. du vinaigre")
+        assert result.unit == "EL"
+        assert result.ingredient == "vinaigre"
+
+
 class TestShimImport:
     def test_import_from_flat_module(self):
         from recipebrain.parse_ingredient_line import parse_ingredient_line as fn

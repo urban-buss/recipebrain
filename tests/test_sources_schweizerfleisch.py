@@ -12,6 +12,8 @@ from recipebrain.settings import ScrapingConfig, Settings
 from recipebrain.sources.schweizerfleisch import (
     SchweizerfleischAdapter,
     _detect_language,
+    _extract_gallery_images,
+    _extract_images,
     _is_recipe_url,
     _parse_recipe_html,
     _parse_sitemap_urls,
@@ -120,6 +122,18 @@ class TestSchweizerfleischFetch:
         assert "Schmoren" in recipe.keywords
         assert "Herbst" in recipe.keywords
 
+    def test_fetch_extracts_difficulty(self):
+        html = FIXTURES.joinpath("schweizerfleisch_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://schweizerfleisch.ch/rezepte/chicken-tikka-masala")
+        assert recipe.difficulty == "Einfach"
+
     def test_fetch_extracts_images(self):
         html = FIXTURES.joinpath("schweizerfleisch_recipe.html").read_text(encoding="utf-8")
 
@@ -168,6 +182,18 @@ class TestSchweizerfleischFetch:
         recipe = adapter.fetch("https://viandesuisse.ch/recettes/chicken-tikka-masala")
         assert recipe.language == "fr"
 
+    def test_fetch_extracts_cuisine_from_tags(self):
+        html = FIXTURES.joinpath("schweizerfleisch_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://schweizerfleisch.ch/rezepte/chicken-tikka-masala")
+        assert recipe.cuisine == "Indisch"
+
 
 class TestHelpers:
     def test_is_recipe_url_valid(self):
@@ -207,3 +233,82 @@ class TestHelpers:
         with adapter:
             pass
         assert adapter._client is None
+
+
+class TestSchweizerfleischGalleryImages:
+    def test_extract_gallery_images_from_fixture(self):
+        html = FIXTURES.joinpath("schweizerfleisch_recipe.html").read_text(encoding="utf-8")
+        from selectolax.parser import HTMLParser
+
+        tree = HTMLParser(html)
+        images = _extract_gallery_images(tree)
+
+        assert len(images) == 2
+        assert "Chicken_Tikka_Masala_step1.jpg" in images[0]
+        assert "Chicken_Tikka_Masala_step2.jpg" in images[1]
+
+    def test_extract_gallery_images_deduplicates(self):
+        from selectolax.parser import HTMLParser
+
+        html = """
+        <div class="recipe-gallery">
+            <img src="/sites/schweizerfleisch/files/img1.jpg">
+            <img src="/sites/schweizerfleisch/files/img1.jpg">
+        </div>
+        """
+        images = _extract_gallery_images(HTMLParser(html))
+        assert len(images) == 1
+
+    def test_extract_gallery_images_ignores_icons(self):
+        from selectolax.parser import HTMLParser
+
+        html = """
+        <div class="recipe-gallery">
+            <img src="/sites/schweizerfleisch/files/icon-timer.png">
+            <img src="/sites/schweizerfleisch/files/gallery/real.jpg">
+        </div>
+        """
+        images = _extract_gallery_images(HTMLParser(html))
+        assert len(images) == 1
+        assert "real.jpg" in images[0]
+
+    def test_extract_gallery_images_uses_data_src(self):
+        from selectolax.parser import HTMLParser
+
+        html = """
+        <div class="recipe-gallery">
+            <img data-src="/sites/schweizerfleisch/files/lazy.jpg" src="placeholder.gif">
+        </div>
+        """
+        images = _extract_gallery_images(HTMLParser(html))
+        assert len(images) == 1
+        assert "lazy.jpg" in images[0]
+
+    def test_fetch_extracts_gallery_images(self):
+        html = FIXTURES.joinpath("schweizerfleisch_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://schweizerfleisch.ch/rezepte/chicken-tikka-masala")
+
+        # 1 OG image + 2 gallery images = 3 total
+        assert len(recipe.image_urls) == 3
+        assert "Chicken_Tikka_Masala.jpg" in recipe.image_urls[0]
+        assert "Chicken_Tikka_Masala_step1.jpg" in recipe.image_urls[1]
+        assert "Chicken_Tikka_Masala_step2.jpg" in recipe.image_urls[2]
+
+    def test_extract_images_no_gallery(self):
+        from selectolax.parser import HTMLParser
+
+        html = """
+        <html><head>
+            <meta property="og:image" content="https://schweizerfleisch.ch/sites/schweizerfleisch/files/main.jpg">
+        </head><body></body></html>
+        """
+        images = _extract_images(HTMLParser(html))
+        assert len(images) == 1
+        assert "main.jpg" in images[0]

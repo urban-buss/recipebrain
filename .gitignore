@@ -24,6 +24,7 @@ build/
 # Project data — NEVER commit
 output/
 output_examples/
+output_examples2/
 dossiers/
 snapshots/
 inbox/

@@ -98,6 +98,71 @@ class TestMigustoFetch:
         recipe = adapter.fetch("https://migusto.migros.ch/fr/recettes/pates-carbonara")
         assert recipe.language == "fr"
 
+    def test_fetch_extracts_keywords_from_jsonld(self):
+        html = FIXTURES.joinpath("migusto_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://migusto.migros.ch/de/rezepte/pasta-carbonara")
+
+        assert "pasta" in recipe.keywords
+        assert "italienisch" in recipe.keywords
+
+    def test_fetch_supplements_category_from_html(self):
+        # JSON-LD without recipeCategory, HTML has article:section
+        html = FIXTURES.joinpath("migusto_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://migusto.migros.ch/de/rezepte/pasta-carbonara")
+
+        # JSON-LD has no recipeCategory, so HTML fallback should fill it
+        assert recipe.category == "Hauptgerichte"
+
+    def test_fetch_supplements_cuisine_from_tags(self):
+        # JSON-LD without recipeCuisine, HTML has recipe-tags
+        html = FIXTURES.joinpath("migusto_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://migusto.migros.ch/de/rezepte/pasta-carbonara")
+
+        # JSON-LD has no recipeCuisine, so HTML fallback should fill it
+        assert recipe.cuisine == "Italienisch"
+
+    def test_fetch_supplements_difficulty_from_tags(self):
+        # JSON-LD without difficulty, HTML has difficulty tag
+        html = """<!DOCTYPE html><html><head>
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","@type":"Recipe","name":"Pasta",
+         "recipeIngredient":["200g Spaghetti"],"recipeInstructions":[{"@type":"HowToStep","text":"Boil."}],
+         "keywords":"pasta, schnell"}
+        </script></head><body>
+        <div class="recipe-tags"><a href="/tag/einfach">Einfach</a><a href="/tag/schnell">Schnell</a></div>
+        </body></html>"""
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://migusto.migros.ch/de/rezepte/pasta-easy")
+
+        assert recipe.difficulty == "Einfach"
+
 
 class TestHelpers:
     def test_parse_sitemap_urls(self):

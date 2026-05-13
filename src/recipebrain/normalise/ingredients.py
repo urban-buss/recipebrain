@@ -3684,6 +3684,283 @@ def _strip_adjectives(normalised_text: str) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------
+# French article/preposition stripping
+# ---------------------------------------------------------------------------
+
+# French quantity phrases that precede the ingredient name (normalised form)
+_FRENCH_QUANTITY_PHRASES: list[str] = sorted(
+    [
+        _normalise(p)
+        for p in [
+            "un peu de",
+            "un peu d'",
+            "une pincée de",
+            "une pincée d'",
+            "quelques",
+            "un brin de",
+            "un brin d'",
+            "un filet de",
+            "un filet d'",
+            "une poignée de",
+            "une poignée d'",
+            "une noisette de",
+            "une noisette d'",
+            "une noix de",
+            "une noix d'",
+            "un trait de",
+            "un trait d'",
+            "un soupçon de",
+            "un soupcon de",
+            "un morceau de",
+            "un morceau d'",
+            "une tranche de",
+            "une tranche d'",
+            "une gousse de",
+            "une gousse d'",
+            "une feuille de",
+            "une feuille d'",
+            "une branche de",
+            "une branche d'",
+            "un bouquet de",
+            "un bouquet d'",
+        ]
+    ],
+    key=len,
+    reverse=True,
+)
+
+# French articles and prepositions (normalised) — sorted longest first
+_FRENCH_ARTICLES: list[str] = sorted(
+    [
+        _normalise(a)
+        for a in [
+            "de la",
+            "de l'",
+            "du",
+            "des",
+            "de",
+            "d'",
+            "le",
+            "la",
+            "l'",
+            "les",
+            "un",
+            "une",
+        ]
+    ],
+    key=len,
+    reverse=True,
+)
+
+# Common French adjectives in recipe ingredient lines
+_ADJECTIVES_FR: list[str] = [
+    "frais",
+    "fraîche",
+    "fraîches",
+    "frais",
+    "haché",
+    "hachée",
+    "hachés",
+    "hachées",
+    "finement haché",
+    "finement hachée",
+    "coupé",
+    "coupée",
+    "coupés",
+    "coupées",
+    "émincé",
+    "émincée",
+    "émincés",
+    "émincées",
+    "râpé",
+    "râpée",
+    "râpés",
+    "râpées",
+    "moulu",
+    "moulue",
+    "moulus",
+    "moulues",
+    "séché",
+    "séchée",
+    "séchés",
+    "séchées",
+    "surgelé",
+    "surgelée",
+    "surgelés",
+    "surgelées",
+    "pelé",
+    "pelée",
+    "pelés",
+    "pelées",
+    "cuit",
+    "cuite",
+    "cuits",
+    "cuites",
+    "gros",
+    "grosse",
+    "grosses",
+    "petit",
+    "petite",
+    "petites",
+    "petits",
+    "grand",
+    "grande",
+    "grandes",
+    "grands",
+    "blanc",
+    "blanche",
+    "blanches",
+    "blancs",
+    "rouge",
+    "rouges",
+    "vert",
+    "verte",
+    "vertes",
+    "verts",
+    "noir",
+    "noire",
+    "noires",
+    "noirs",
+    "doux",
+    "douce",
+    "douces",
+    "long",
+    "longue",
+    "longues",
+    "longs",
+    "fin",
+    "fine",
+    "fines",
+    "fins",
+    "tiède",
+    "tièdes",
+    "chaud",
+    "chaude",
+    "chaudes",
+    "chauds",
+    "froid",
+    "froide",
+    "froides",
+    "froids",
+    "entier",
+    "entière",
+    "entières",
+    "entiers",
+    "bio",
+]
+
+_ADJECTIVES_FR_NORMALISED: list[str] = sorted(
+    [_normalise(adj) for adj in _ADJECTIVES_FR],
+    key=len,
+    reverse=True,
+)
+
+
+def _strip_french_context(normalised_text: str) -> str:
+    """Strip French quantity phrases, articles, and prepositions from ingredient text.
+
+    Handles patterns like:
+    - "un peu de poivre" → "poivre"
+    - "d'huile d'olive" → "huile d'olive" (preserves internal d')
+    - "du beurre" → "beurre"
+    - "de la farine" → "farine"
+
+    Examples:
+        >>> _strip_french_context("un peu de poivre")
+        'poivre'
+        >>> _strip_french_context("du beurre")
+        'beurre'
+        >>> _strip_french_context("de la farine")
+        'farine'
+    """
+    text = normalised_text
+
+    # Step 1: strip full quantity phrases first (longest match)
+    for phrase in _FRENCH_QUANTITY_PHRASES:
+        if text.startswith(phrase):
+            remainder = text[len(phrase) :].lstrip()
+            if remainder:
+                text = remainder
+                break
+
+    # Step 2: strip leading articles/prepositions
+    changed = True
+    while changed:
+        changed = False
+        for art in _FRENCH_ARTICLES:
+            if text.startswith(art + " "):
+                text = text[len(art) + 1 :].lstrip()
+                changed = True
+                break
+            # Handle elided forms (d', l') — no space after
+            if art.endswith("'") and text.startswith(art):
+                text = text[len(art) :].lstrip()
+                changed = True
+                break
+
+    return text
+
+
+def _strip_french_adjectives(normalised_text: str) -> str:
+    """Strip common French adjectives from ingredient text.
+
+    Handles both leading and trailing adjectives (French adjectives often follow
+    the noun, but in recipes they sometimes precede it).
+
+    Examples:
+        >>> _strip_french_adjectives("poivre noir")
+        'poivre'
+        >>> _strip_french_adjectives("petit oignon")
+        'oignon'
+    """
+    text = normalised_text
+
+    # Strip leading adjectives
+    changed = True
+    while changed:
+        changed = False
+        for adj in _ADJECTIVES_FR_NORMALISED:
+            if text.startswith(adj + " "):
+                text = text[len(adj) + 1 :].lstrip()
+                changed = True
+                break
+
+    # Strip trailing adjectives (common in French: "poivre noir", "sel fin")
+    changed = True
+    while changed:
+        changed = False
+        for adj in _ADJECTIVES_FR_NORMALISED:
+            if text.endswith(" " + adj):
+                text = text[: -(len(adj) + 1)].rstrip()
+                changed = True
+                break
+
+    return text
+
+
+def _depluralize_french(word: str) -> list[str]:
+    """Generate singular candidates from a French plural form.
+
+    French plurals are typically formed by adding -s or -x.
+
+    Examples:
+        >>> 'oignon' in _depluralize_french('oignons')
+        True
+        >>> 'chou' in _depluralize_french('choux')
+        True
+    """
+    candidates = []
+    if word.endswith("s") and len(word) > 3:
+        candidates.append(word[:-1])
+    if word.endswith("x") and len(word) > 3:
+        candidates.append(word[:-1])
+    # -aux → -al (e.g. animaux → animal)
+    if word.endswith("aux") and len(word) > 4:
+        candidates.append(word[:-3] + "al")
+    return candidates
+
+
 def _depluralize(word: str) -> list[str]:
     """Generate singular candidates from a German plural form.
 
@@ -3718,6 +3995,7 @@ def get_canonical_ingredient_by_id(ingredient_id: int) -> CanonicalIngredient | 
 
 # Matches leading quantity+unit patterns like "200g", "200 g", "1.5 kg",
 # "½ dl", "2½ EL", fractional quantities, and range patterns ("2-3").
+# Includes German units (EL, TL, Prise, etc.) and French units (c.s., c.c., pincée, etc.)
 _QUANTITY_UNIT_RE = re.compile(
     r"^\s*"
     r"(?:\d+(?:[.,]\d+)?\s*)?"  # optional whole number
@@ -3726,7 +4004,13 @@ _QUANTITY_UNIT_RE = re.compile(
     r"(?:g|kg|ml|cl|dl|l|el|tl|msp|prise|prisen|bund"
     r"|stück|stk|scheibe|scheiben|blatt|blätter"
     r"|zweig|zweige|zehe|zehen|dose|dosen"
-    r"|becher|packung|pkg|tropfen|tasse|tassen)"
+    r"|becher|packung|pkg|tropfen|tasse|tassen"
+    # French units
+    r"|c\.s\.|c\.c\.|cs|cc|pincee|pincées?|gouttes?"
+    r"|tranche|tranches|bouquet|sachet|sachets"
+    r"|paquet|paquets|boite|boîte|pot|pots"
+    r"|branche|branches|feuille|feuilles"
+    r"|gousse|gousses|morceau|morceaux)"
     r"(?:\.)?"  # optional trailing dot
     r"\s+",
     re.IGNORECASE | re.UNICODE,
@@ -3809,25 +4093,70 @@ def _match_normalised(normalised: str) -> str | None:
     if result:
         return result
 
-    # Strategy 2: strip adjectives then match
+    # Strategy 2: strip German adjectives then match
     stripped = _strip_adjectives(normalised)
     if stripped != normalised:
         result = _INDEX.get(stripped)
         if result:
             return result
 
-    # Strategy 3: depluralize (try on original normalised text)
+    # Strategy 3: depluralize (German) on original normalised text
     for candidate in _depluralize(normalised):
         result = _INDEX.get(candidate)
         if result:
             return result
 
-    # Strategy 4: strip adjectives + depluralize
+    # Strategy 4: strip German adjectives + depluralize
     if stripped != normalised:
         for candidate in _depluralize(stripped):
             result = _INDEX.get(candidate)
             if result:
                 return result
+
+    # Strategy 5: French context stripping (articles, prepositions, quantity phrases)
+    fr_stripped = _strip_french_context(normalised)
+    if fr_stripped != normalised:
+        result = _INDEX.get(fr_stripped)
+        if result:
+            return result
+
+        # Strategy 5a: French context + French adjective stripping
+        fr_adj_stripped = _strip_french_adjectives(fr_stripped)
+        if fr_adj_stripped != fr_stripped:
+            result = _INDEX.get(fr_adj_stripped)
+            if result:
+                return result
+
+        # Strategy 5b: French context + French depluralize
+        for candidate in _depluralize_french(fr_stripped):
+            result = _INDEX.get(candidate)
+            if result:
+                return result
+
+        # Strategy 5c: French context + adjective strip + depluralize
+        if fr_adj_stripped != fr_stripped:
+            for candidate in _depluralize_french(fr_adj_stripped):
+                result = _INDEX.get(candidate)
+                if result:
+                    return result
+
+    # Strategy 6: French adjective stripping on original (without context strip)
+    fr_adj_only = _strip_french_adjectives(normalised)
+    if fr_adj_only != normalised and fr_adj_only != fr_stripped:
+        result = _INDEX.get(fr_adj_only)
+        if result:
+            return result
+
+        for candidate in _depluralize_french(fr_adj_only):
+            result = _INDEX.get(candidate)
+            if result:
+                return result
+
+    # Strategy 7: French depluralize on original
+    for candidate in _depluralize_french(normalised):
+        result = _INDEX.get(candidate)
+        if result:
+            return result
 
     return None
 

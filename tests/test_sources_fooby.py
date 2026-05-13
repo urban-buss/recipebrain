@@ -100,6 +100,82 @@ class TestFoobyFetch:
 
         assert recipe.language == "fr"
 
+    def test_fetch_extracts_classification_from_jsonld(self):
+        html = FIXTURES.joinpath("fooby_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://fooby.ch/de/rezepte/pouletbrust-12345")
+
+        assert recipe.category == "Hauptgericht"
+        assert recipe.cuisine == "Swiss"
+        assert "poulet" in recipe.keywords
+        assert "einfach" in recipe.keywords
+
+    def test_fetch_supplements_keywords_from_html_when_jsonld_empty(self):
+        # JSON-LD without keywords, but with meta keywords in HTML
+        html = """<!DOCTYPE html><html><head>
+        <meta name="keywords" content="schnell, einfach, alltagsküche">
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","@type":"Recipe","name":"Test",
+         "recipeIngredient":["100g Mehl"],"recipeInstructions":[{"@type":"HowToStep","text":"Mix."}]}
+        </script></head><body></body></html>"""
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://fooby.ch/de/rezepte/test-123")
+
+        assert recipe.keywords == ["schnell", "einfach", "alltagsküche"]
+
+    def test_fetch_supplements_cuisine_from_html_when_jsonld_empty(self):
+        # JSON-LD without recipeCuisine, but with cuisine tag in HTML
+        html = """<!DOCTYPE html><html><head>
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","@type":"Recipe","name":"Pad Thai",
+         "recipeIngredient":["200g Reisnudeln"],"recipeInstructions":[{"@type":"HowToStep","text":"Fry."}]}
+        </script></head><body>
+        <div class="recipe-tags"><a href="/tag/thai">Thai</a><a href="/tag/schnell">Schnell</a></div>
+        </body></html>"""
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://fooby.ch/de/rezepte/pad-thai-456")
+
+        assert recipe.cuisine == "Thai"
+
+    def test_fetch_does_not_override_jsonld_cuisine(self):
+        # JSON-LD provides recipeCuisine, HTML also has cuisine tag — JSON-LD wins
+        html = """<!DOCTYPE html><html><head>
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","@type":"Recipe","name":"Pasta",
+         "recipeCuisine":"Italian",
+         "recipeIngredient":["200g Spaghetti"],"recipeInstructions":[{"@type":"HowToStep","text":"Boil."}]}
+        </script></head><body>
+        <div class="recipe-tags"><a href="/tag/mediterran">Mediterran</a></div>
+        </body></html>"""
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://fooby.ch/de/rezepte/pasta-789")
+
+        assert recipe.cuisine == "Italian"
+
 
 class TestHelpers:
     def test_parse_sitemap_urls(self):

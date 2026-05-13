@@ -157,20 +157,17 @@ def _infer_difficulty(raw_difficulty: str, total_minutes: int | None) -> str | N
 # ---------------------------------------------------------------------------
 
 
-def extract_classification(data: dict) -> dict:
+def extract_classification(data: dict | RawRecipe) -> dict:
     """Extract normalised classification fields from raw recipe metadata.
 
-    Accepts a dict with JSON-LD style keys and returns normalised
-    classification values. Falls back to scanning ``keywords`` for
-    course and difficulty when explicit fields are absent.
+    Accepts a dict with JSON-LD style keys **or** a ``RawRecipe`` instance
+    and returns normalised classification values.  Falls back to scanning
+    ``keywords`` for course and difficulty when explicit fields are absent.
 
     Args:
-        data: Dict with optional keys:
-            - ``recipeCategory`` / ``category``: raw category string
-            - ``recipeCuisine`` / ``cuisine``: raw cuisine string
-            - ``difficulty``: raw difficulty string
-            - ``keywords``: list of keyword strings
-            - ``total_minutes``: integer total cook time (for difficulty inference)
+        data: Dict with optional keys (``recipeCategory``, ``recipeCuisine``,
+            ``difficulty``, ``keywords``, ``total_minutes``) **or** a
+            ``RawRecipe`` dataclass.
 
     Returns:
         Dict with keys ``course``, ``cuisine``, ``difficulty`` (values may be None).
@@ -181,6 +178,14 @@ def extract_classification(data: dict) -> dict:
         >>> extract_classification({'keywords': ['einfach', 'Schweizer Küche']})
         {'course': None, 'cuisine': None, 'difficulty': 'easy'}
     """
+    if isinstance(data, RawRecipe):
+        data = {
+            "recipeCategory": data.category,
+            "recipeCuisine": data.cuisine,
+            "difficulty": data.difficulty,
+            "keywords": data.keywords,
+            "total_minutes": None,
+        }
     category = data.get("recipeCategory") or data.get("category", "")
     cuisine_raw = data.get("recipeCuisine") or data.get("cuisine", "")
     difficulty_raw = data.get("difficulty", "")
@@ -280,7 +285,7 @@ def build_recipe_row(
     return {
         "id": recipe_id,
         "source_id": source_id,
-        "source_external_id": _extract_external_id(raw.source_url),
+        "source_external_id": _extract_external_id(raw.source_url, raw.language),
         "source_url": raw.source_url,
         "title": raw.title,
         "title_normalised": normalise_title(raw.title),
@@ -478,9 +483,10 @@ def _compute_content_hash(raw: RawRecipe) -> str:
     """Compute a stable SHA-256 hash of the recipe's core content.
 
     Used for change detection during incremental ETL.
-    Hash covers: title, ingredients, steps (order-sensitive).
+    Hash covers: language, title, ingredients, steps (order-sensitive).
     """
     parts = [
+        raw.language or "",
         raw.title,
         "\n".join(raw.ingredients_raw),
         "\n".join(raw.steps_raw),
@@ -489,16 +495,20 @@ def _compute_content_hash(raw: RawRecipe) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _extract_external_id(url: str) -> str:
+def _extract_external_id(url: str, language: str | None = None) -> str:
     """Extract a stable external ID from a recipe URL.
 
-    Uses the last meaningful path segment as the ID.
+    Uses the last meaningful path segment as the ID. When ``language`` is
+    provided and the slug does not already end with the language suffix,
+    appends ``-{language}`` to ensure uniqueness for multilingual sources.
 
     Examples:
-        >>> _extract_external_id("https://fooby.ch/de/rezepte/pouletbrust-12345")
-        'pouletbrust-12345'
-        >>> _extract_external_id("https://migusto.migros.ch/de/rezepte/pasta-carbonara.html")
-        'pasta-carbonara'
+        >>> _extract_external_id("https://fooby.ch/de/rezepte/pouletbrust-12345", "de")
+        'pouletbrust-12345-de'
+        >>> _extract_external_id("https://migusto.migros.ch/de/rezepte/pasta-carbonara.html", "de")
+        'pasta-carbonara-de'
+        >>> _extract_external_id("https://example.com/recipe/BB_ABRE120801-40-fr", "fr")
+        'BB_ABRE120801-40-fr'
     """
     if not url:
         return ""
@@ -513,6 +523,11 @@ def _extract_external_id(url: str) -> str:
     slug = segments[-1]
     # Strip common extensions
     slug = re.sub(r"\.(html?|php|aspx?)$", "", slug, flags=re.IGNORECASE)
+
+    # Append language suffix if not already present
+    if language and not slug.endswith(f"-{language}"):
+        slug = f"{slug}-{language}"
+
     return slug
 
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import ClassVar
 from unittest.mock import MagicMock
 
@@ -17,6 +19,7 @@ from recipebrain.etl import (
     _reconcile_deleted,
     _run_source,
     _seed_lookup_tables,
+    _validate_recipe_content,
     run_etl,
 )
 from recipebrain.settings import PathsConfig, Settings, SourceConfig
@@ -608,6 +611,62 @@ class TestNextRunId:
         wt("etl_runs", [{"id": 5, "source": "test"}], tmp_path)
         assert _next_run_id(tmp_path) == 6
 
+    def test_logs_warning_on_unexpected_error(self, tmp_path, caplog):
+        """Non-FileNotFoundError exceptions log a warning and return 1."""
+        import logging
+
+        # Write a corrupted file so read_table raises something unexpected
+        etl_runs_path = tmp_path / "etl_runs.parquet"
+        etl_runs_path.write_text("not valid parquet data")
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            result = _next_run_id(tmp_path)
+
+        assert result == 1
+        assert "failed to read etl_runs for next ID" in caplog.text
+
+    def test_no_warning_on_missing_file(self, tmp_path, caplog):
+        """FileNotFoundError does not log a warning (normal first-run case)."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            result = _next_run_id(tmp_path)
+
+        assert result == 1
+        assert "failed to read etl_runs" not in caplog.text
+
+
+class TestEtlRunLogWarning:
+    def test_log_etl_run_warns_on_write_failure(self, tmp_path, caplog, monkeypatch):
+        """_log_etl_run logs a warning with exc_info when append_table fails."""
+        import logging
+
+        from recipebrain.etl import _log_etl_run
+
+        monkeypatch.setattr(
+            "recipebrain.etl.append_table",
+            MagicMock(side_effect=OSError("disk full")),
+        )
+
+        result = EtlResult(source="fake", discovered=1, fetched=1)
+        started_at = datetime.now(UTC)
+        t0 = time.monotonic()
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _log_etl_run(
+                result,
+                started_at,
+                t0,
+                batch_size=20,
+                limit=None,
+                status="success",
+                output_dir=tmp_path,
+            )
+
+        assert "failed to write etl_runs log for fake" in caplog.text
+        # exc_info=True means the traceback is included
+        assert "disk full" in caplog.text
+
 
 class _FoobyAdapter(SourceAdapter):
     """Adapter with a key that exists in _SOURCE_METADATA."""
@@ -721,3 +780,116 @@ class TestSeedLookupTables:
         assert len(sources) == 2
         ids = {s["id"] for s in sources}
         assert ids == {1, 2}  # bettybossi=1, fooby=2
+
+
+class TestValidateRecipeContent:
+    """Tests for _validate_recipe_content — rejects empty recipes."""
+
+    def test_rejects_empty_ingredients_and_steps(self):
+        raw = RawRecipe(title="Empty Page", ingredients_raw=[], steps_raw=[])
+        assert _validate_recipe_content(raw, "https://a.ch/empty") is False
+
+    def test_accepts_recipe_with_ingredients_only(self):
+        raw = RawRecipe(title="Salad", ingredients_raw=["100 g Tomaten"], steps_raw=[])
+        assert _validate_recipe_content(raw, "https://a.ch/salad") is True
+
+    def test_accepts_recipe_with_steps_only(self):
+        raw = RawRecipe(title="Quick Tip", ingredients_raw=[], steps_raw=["Mix well."])
+        assert _validate_recipe_content(raw, "https://a.ch/tip") is True
+
+    def test_accepts_recipe_with_both(self):
+        raw = RawRecipe(
+            title="Full Recipe",
+            ingredients_raw=["200 g Mehl"],
+            steps_raw=["Mischen."],
+            description="A good recipe",
+        )
+        assert _validate_recipe_content(raw, "https://a.ch/full") is True
+
+    def test_warns_on_empty_description(self, caplog):
+        import logging
+
+        raw = RawRecipe(
+            title="No Desc",
+            ingredients_raw=["100 g Butter"],
+            steps_raw=["Schmelzen."],
+            description="",
+        )
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            result = _validate_recipe_content(raw, "https://a.ch/nodesc")
+
+        assert result is True
+        assert "empty description" in caplog.text
+
+    def test_no_warning_when_description_present(self, caplog):
+        import logging
+
+        raw = RawRecipe(
+            title="Good",
+            ingredients_raw=["1 Ei"],
+            steps_raw=["Kochen."],
+            description="A nice dish.",
+        )
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _validate_recipe_content(raw, "https://a.ch/good")
+
+        assert "empty description" not in caplog.text
+
+
+class TestValidationSkippedInPipeline:
+    """Integration tests: _run_source skips invalid recipes."""
+
+    def test_skips_recipe_without_content(self, tmp_path):
+        empty_recipe = RawRecipe(
+            title="Category Page",
+            ingredients_raw=[],
+            steps_raw=[],
+            source_url="https://a.ch/category",
+        )
+        adapter = FakeAdapter(
+            urls=["https://a.ch/category", "https://a.ch/real"],
+            recipes={"https://a.ch/category": empty_recipe},
+        )
+
+        result = _run_source(adapter, tmp_path)
+
+        assert result.discovered == 2
+        assert result.fetched == 1
+        assert result.validation_skipped == 1
+
+        recipes = read_table("recipes", tmp_path)
+        assert recipes.num_rows == 1
+
+    def test_all_invalid_skipped(self, tmp_path):
+        empty1 = RawRecipe(
+            title="Empty1", ingredients_raw=[], steps_raw=[], source_url="https://a.ch/1"
+        )
+        empty2 = RawRecipe(
+            title="Empty2", ingredients_raw=[], steps_raw=[], source_url="https://a.ch/2"
+        )
+        adapter = FakeAdapter(
+            urls=["https://a.ch/1", "https://a.ch/2"],
+            recipes={"https://a.ch/1": empty1, "https://a.ch/2": empty2},
+        )
+
+        result = _run_source(adapter, tmp_path)
+
+        assert result.fetched == 0
+        assert result.validation_skipped == 2
+
+    def test_validation_skipped_logged_in_etl_run(self, tmp_path):
+        empty_recipe = RawRecipe(
+            title="Bad Page",
+            ingredients_raw=[],
+            steps_raw=[],
+            source_url="https://a.ch/bad",
+        )
+        adapter = FakeAdapter(
+            urls=["https://a.ch/bad", "https://a.ch/good"],
+            recipes={"https://a.ch/bad": empty_recipe},
+        )
+
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["validation_skipped"] == 1
