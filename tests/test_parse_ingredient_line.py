@@ -289,6 +289,25 @@ class TestFrenchUnits:
         assert result.unit == "EL"
         assert result.ingredient == "vinaigre"
 
+    @pytest.mark.parametrize(
+        ("line", "qty", "unit", "ing"),
+        [
+            ("1 cuillère à soupe de beurre", 1, "EL", "beurre"),
+            ("2 cuillères à soupe de sucre", 2, "EL", "sucre"),
+            ("1 cuillère à café de sel", 1, "TL", "sel"),
+            ("3 cuillères à café de cannelle", 3, "TL", "cannelle"),
+            ("1 c.à.s. de beurre", 1, "EL", "beurre"),
+            ("2 c.à.c. de sel", 2, "TL", "sel"),
+            ("1 c.à s. de moutarde", 1, "EL", "moutarde"),
+            ("1 c.à c. de vanille", 1, "TL", "vanille"),
+            ("2 pincées de sel", 2, "Prise", "sel"),
+        ],
+    )
+    def test_french_multiword_units(self, line, qty, unit, ing):
+        """Regression test for issue #027: French multi-word units."""
+        r = parse_ingredient_line(line)
+        assert (r.quantity, r.unit, r.ingredient) == (qty, unit, ing)
+
 
 class TestShimImport:
     def test_import_from_flat_module(self):

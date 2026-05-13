@@ -96,6 +96,8 @@ _UNITS: dict[str, str] = {
     # French
     "pincée": "Prise",
     "pincee": "Prise",
+    "pincées": "Prise",
+    "pincees": "Prise",
     "branche": "Zweig",
     "branches": "Zweig",
     "brin": "Zweig",
@@ -127,8 +129,12 @@ _QUANTITY_RE = re.compile(
 
 # Multi-token French unit abbreviations (tried before single-word lookup)
 _MULTI_TOKEN_UNITS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"c\.\s*à\s*s\.?", re.IGNORECASE), "EL"),
-    (re.compile(r"c\.\s*à\s*c\.?", re.IGNORECASE), "TL"),
+    # Full multi-word forms (must come before abbreviation patterns)
+    (re.compile(r"cuillères?\s+à\s+soupe", re.IGNORECASE), "EL"),
+    (re.compile(r"cuillères?\s+à\s+café", re.IGNORECASE), "TL"),
+    # Dotted abbreviations (c.à.s., c. à s., c.à s., etc.)
+    (re.compile(r"c\.\s*à\s*\.?\s*s\.?", re.IGNORECASE), "EL"),
+    (re.compile(r"c\.\s*à\s*\.?\s*c\.?", re.IGNORECASE), "TL"),
     (re.compile(r"c\.s\.?", re.IGNORECASE), "EL"),
     (re.compile(r"c\.c\.?", re.IGNORECASE), "TL"),
     (re.compile(r"cs\.?", re.IGNORECASE), "EL"),
