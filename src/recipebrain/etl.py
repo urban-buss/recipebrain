@@ -15,7 +15,7 @@ from pathlib import Path
 from recipebrain.exceptions import DataStaleError
 from recipebrain.images import download_recipe_images
 from recipebrain.query import invalidate_connection
-from recipebrain.settings import Settings
+from recipebrain.settings import ImagesConfig, Settings
 from recipebrain.snapshot import create_snapshot
 from recipebrain.sources.base import RawRecipe, SourceAdapter
 from recipebrain.transform import (
@@ -84,6 +84,9 @@ def _next_recipe_id(output_dir: Path) -> int:
         return 1
 
 
+# Static source metadata. The "language" field represents the primary/default
+# language for each source — the actual languages fetched are controlled by
+# SourceConfig.languages in the settings.
 _SOURCE_METADATA: dict[str, dict] = {
     "bettybossi": {
         "id": 1,
@@ -151,8 +154,8 @@ def _validate_recipe_content(raw: RawRecipe, url: str) -> bool:
     """Check whether a raw recipe has sufficient content to be ingested.
 
     Rejects recipes with empty ingredients AND empty steps (likely non-recipe
-    pages). Logs a warning for recipes with empty description but still allows
-    ingestion.
+    pages). Logs warnings for quality issues but only hard-rejects clearly
+    broken pages.
 
     Returns:
         True if the recipe should be ingested, False if it should be skipped.
@@ -167,10 +170,69 @@ def _validate_recipe_content(raw: RawRecipe, url: str) -> bool:
     if not raw.description:
         logger.warning("ETL: recipe %s has empty description — ingesting anyway", url)
 
+    # Ingredient quality heuristics (warn but don't reject)
+    if raw.ingredients_raw:
+        _warn_on_suspicious_ingredients(raw.ingredients_raw, url)
+
     return True
 
 
-def _seed_lookup_tables(output_dir: Path, adapters: list[SourceAdapter]) -> None:
+_INGREDIENT_NAV_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "hauptmenü",
+        "menu schliessen",
+        "jetzt entdecken",
+        "jetzt weiterstöbern",
+        "werbung buchen",
+    }
+)
+
+
+def _warn_on_suspicious_ingredients(ingredients: list[str], url: str) -> None:
+    """Log a warning if ingredient data looks like navigation text.
+
+    Heuristics:
+    - Average length > 150 chars (real ingredients are typically < 80)
+    - Contains known navigation keywords
+    - No items contain recognisable quantity patterns
+
+    Examples:
+        >>> import logging; logging.disable(logging.CRITICAL)
+        >>> _warn_on_suspicious_ingredients(["200 g Mehl", "3 Eier"], "http://x")
+        >>> _warn_on_suspicious_ingredients(["ShopHauptmenü..."], "http://x")
+    """
+    avg_len = sum(len(i) for i in ingredients) / len(ingredients)
+    if avg_len > 150:
+        logger.warning(
+            "ETL: suspicious ingredients at %s — avg length %.0f chars (expected < 80)",
+            url,
+            avg_len,
+        )
+        return
+
+    combined = " ".join(ingredients).lower()
+    if any(kw in combined for kw in _INGREDIENT_NAV_KEYWORDS):
+        logger.warning(
+            "ETL: suspicious ingredients at %s — contains navigation keywords",
+            url,
+        )
+        return
+
+    # Check for quantity patterns (at least 20% of items should have one)
+    if len(ingredients) >= 3:
+        qty_count = sum(1 for item in ingredients if any(c.isdigit() for c in item))
+        if qty_count / len(ingredients) < 0.2:
+            logger.warning(
+                "ETL: suspicious ingredients at %s — only %d/%d items contain numbers",
+                url,
+                qty_count,
+                len(ingredients),
+            )
+
+
+def _seed_lookup_tables(
+    output_dir: Path, adapters: list[SourceAdapter], settings: Settings | None = None
+) -> None:
     """Write seed data to lookup tables if they are empty or missing.
 
     Ensures that ``sources.parquet`` contains metadata for all adapters
@@ -192,13 +254,16 @@ def _seed_lookup_tables(output_dir: Path, adapters: list[SourceAdapter]) -> None
         for adapter in adapters:
             meta = _SOURCE_METADATA.get(adapter.key)
             if meta:
+                # Use configured primary language if available
+                source_cfg = settings.sources.get(adapter.key) if settings else None
+                language = source_cfg.language if source_cfg else meta["language"]
                 source_rows.append(
                     {
                         "id": meta["id"],
                         "key": adapter.key,
                         "display_name": meta["display_name"],
                         "base_url": meta["base_url"],
-                        "language": meta["language"],
+                        "language": language,
                         "kind": "scraped",
                     }
                 )
@@ -256,12 +321,21 @@ def run_etl(
         return []
 
     # Seed lookup tables (sources, ingredients) before scraping
-    _seed_lookup_tables(output_dir, adapters)
+    _seed_lookup_tables(output_dir, adapters, settings)
 
     results = []
 
     for adapter in adapters:
-        result = _run_source(adapter, output_dir, limit=limit, batch_size=batch_size)
+        source_cfg = settings.sources.get(adapter.key)
+        allowed_languages = source_cfg.languages if source_cfg else ["de"]
+        result = _run_source(
+            adapter,
+            output_dir,
+            limit=limit,
+            batch_size=batch_size,
+            images_config=settings.images,
+            allowed_languages=allowed_languages,
+        )
         results.append(result)
 
         # Clean up adapter resources
@@ -345,6 +419,8 @@ def _run_source(
     *,
     limit: int | None = None,
     batch_size: int | None = None,
+    images_config: ImagesConfig | None = None,
+    allowed_languages: list[str] | None = None,
 ) -> EtlResult:
     """Run ETL for a single source adapter.
 
@@ -354,6 +430,8 @@ def _run_source(
         limit: If set, stop after fetching this many new recipes.
         batch_size: If set, flush to Parquet every N recipes. Useful for
             long-running scrapes so partial progress is saved to disk.
+        allowed_languages: If set, skip recipes whose language is not in
+            this list. Safety net for language filtering.
     """
     started_at = datetime.now(UTC)
     t0 = time.monotonic()
@@ -405,6 +483,11 @@ def _run_source(
                 result.error_details.append(f"Fetch failed ({url}): {exc}")
                 continue
 
+            # Language safety net — skip recipes not in allowed languages
+            if allowed_languages and raw.language not in allowed_languages:
+                result.skipped += 1
+                continue
+
             if not _validate_recipe_content(raw, url):
                 result.validation_skipped += 1
                 continue
@@ -434,7 +517,11 @@ def _run_source(
             if raw.image_urls and hasattr(adapter, "_http"):
                 try:
                     local_paths = download_recipe_images(
-                        raw.image_urls, recipe_id, output_dir, adapter._http
+                        raw.image_urls,
+                        recipe_id,
+                        output_dir,
+                        adapter._http,
+                        config=images_config,
                     )
                 except Exception as exc:
                     logger.warning("ETL: image download failed for recipe %d: %s", recipe_id, exc)
@@ -470,10 +557,13 @@ def _run_source(
         )
 
     # Soft-delete recipes whose URLs are no longer discovered
-    deleted = _reconcile_deleted(source_id, set(urls), output_dir)
-    if deleted:
-        logger.info("ETL: soft-deleted %d recipes from %s", deleted, adapter.key)
-    result.soft_deleted = deleted
+    try:
+        deleted = _reconcile_deleted(source_id, set(urls), output_dir)
+        if deleted:
+            logger.info("ETL: soft-deleted %d recipes from %s", deleted, adapter.key)
+        result.soft_deleted = deleted
+    except Exception as exc:
+        logger.warning("ETL: reconcile_deleted failed for %s: %s", adapter.key, exc)
 
     # Determine run status
     if interrupted:

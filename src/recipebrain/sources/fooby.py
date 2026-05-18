@@ -55,15 +55,16 @@ class FoobyAdapter(SourceAdapter):
     def discover(self) -> Iterable[str]:
         """Yield recipe URLs from Fooby's sitemap.
 
-        Fetches the sitemap XML and filters for URLs containing the
-        recipe path pattern. Respects rate limiting between requests.
+        Only yields URLs whose language matches the configured languages.
+        Defaults to German-only when no config is present.
         """
         response = self._http.get(_SITEMAP_URL)
         response.raise_for_status()
 
+        configured_languages = _get_configured_languages(self._settings, self.key)
         urls = _parse_sitemap_urls(response.text)
         for url in urls:
-            if _is_recipe_url(url):
+            if _is_recipe_url(url) and _detect_language(url) in configured_languages:
                 yield url
 
     def fetch(self, url: str) -> RawRecipe:
@@ -156,6 +157,14 @@ def _detect_language(url: str) -> str:
     if "/it/" in url:
         return "it"
     return "de"
+
+
+def _get_configured_languages(settings: Settings, key: str) -> list[str]:
+    """Return the configured languages for a source, defaulting to [\"de\"]."""
+    source_cfg = settings.sources.get(key)
+    if source_cfg is None:
+        return ["de"]
+    return source_cfg.languages
 
 
 def _extract_meta_keywords(tree: HTMLParser) -> list[str]:

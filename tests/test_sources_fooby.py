@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from recipebrain.settings import ScrapingConfig, Settings
+from recipebrain.settings import ScrapingConfig, Settings, SourceConfig
 from recipebrain.sources.fooby import (
     FoobyAdapter,
     _detect_language,
@@ -40,9 +40,30 @@ class TestFoobyDiscover:
 
         urls = list(adapter.discover())
 
-        # Should include recipe URLs only (3 in fixture), not /ueber-uns or /tipps-tricks
+        # Default config is DE-only: fixture has 2 DE recipe URLs
+        assert len(urls) == 2
+        assert all("/de/rezepte/" in url for url in urls)
+
+    def test_discover_yields_all_languages_when_configured(self):
+        settings = Settings(
+            scraping=ScrapingConfig(rate_limit_seconds=0),
+            sources={"fooby": SourceConfig(languages=["de", "fr"])},
+        )
+        adapter = FoobyAdapter(settings=settings)
+        mock_client = MagicMock()
+        adapter._client = mock_client
+
+        sitemap_xml = FIXTURES.joinpath("fooby_sitemap.xml").read_text(encoding="utf-8")
+        mock_response = MagicMock()
+        mock_response.text = sitemap_xml
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        urls = list(adapter.discover())
+
+        # DE+FR configured: 2 DE + 1 FR recipe URLs
         assert len(urls) == 3
-        assert all("/rezepte/" in url or "/recettes/" in url for url in urls)
+        assert any("/fr/recettes/" in url for url in urls)
 
     def test_discover_filters_non_recipe_urls(self):
         sitemap_xml = FIXTURES.joinpath("fooby_sitemap.xml").read_text(encoding="utf-8")

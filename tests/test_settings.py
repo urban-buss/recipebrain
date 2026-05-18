@@ -185,6 +185,60 @@ class TestConfigResolution:
         settings = Settings.load(None)
         assert settings.scraping.rate_limit_seconds == 7.0
 
+
+class TestSourceConfigLanguages:
+    """SourceConfig supports both legacy 'language' and new 'languages' formats."""
+
+    def test_languages_list_from_toml(self, tmp_path):
+        from recipebrain.settings import Settings
+
+        toml_file = tmp_path / "recipebrain.toml"
+        toml_file.write_text('[sources.bettybossi]\nenabled = true\nlanguages = ["de", "fr"]\n')
+        settings = Settings.load(toml_file)
+        assert settings.sources["bettybossi"].languages == ["de", "fr"]
+
+    def test_legacy_language_string_converted_to_list(self, tmp_path):
+        from recipebrain.settings import Settings
+
+        toml_file = tmp_path / "recipebrain.toml"
+        toml_file.write_text('[sources.fooby]\nenabled = true\nlanguage = "de"\n')
+        settings = Settings.load(toml_file)
+        assert settings.sources["fooby"].languages == ["de"]
+
+    def test_languages_takes_precedence_over_language(self, tmp_path):
+        from recipebrain.settings import Settings
+
+        toml_file = tmp_path / "recipebrain.toml"
+        toml_file.write_text(
+            '[sources.bettybossi]\nenabled = true\nlanguage = "de"\nlanguages = ["de", "fr"]\n'
+        )
+        settings = Settings.load(toml_file)
+        assert settings.sources["bettybossi"].languages == ["de", "fr"]
+
+    def test_default_languages_is_german(self, tmp_path):
+        from recipebrain.settings import Settings
+
+        toml_file = tmp_path / "recipebrain.toml"
+        toml_file.write_text("[sources.migusto]\nenabled = true\n")
+        settings = Settings.load(toml_file)
+        assert settings.sources["migusto"].languages == ["de"]
+
+    def test_language_property_returns_first(self, tmp_path):
+        from recipebrain.settings import Settings
+
+        toml_file = tmp_path / "recipebrain.toml"
+        toml_file.write_text('[sources.bettybossi]\nenabled = true\nlanguages = ["fr", "de"]\n')
+        settings = Settings.load(toml_file)
+        assert settings.sources["bettybossi"].language == "fr"
+
+    def test_source_config_default_construction(self):
+        from recipebrain.settings import SourceConfig
+
+        cfg = SourceConfig()
+        assert cfg.languages == ["de"]
+        assert cfg.language == "de"
+        assert cfg.enabled is True
+
     def test_env_var_missing_file_raises(self, tmp_path, monkeypatch):
         from recipebrain.settings import Settings
 

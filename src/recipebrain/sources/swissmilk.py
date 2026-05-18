@@ -24,10 +24,10 @@ from recipebrain.sources.base import RawRecipe, SourceAdapter
 
 logger = logging.getLogger(__name__)
 
-_SITEMAP_URLS = (
-    "https://www.swissmilk.ch/de/sitemap.xml",
-    "https://www.swissmilk.ch/fr/sitemap.xml",
-)
+_SITEMAP_BY_LANGUAGE: dict[str, str] = {
+    "de": "https://www.swissmilk.ch/de/sitemap.xml",
+    "fr": "https://www.swissmilk.ch/fr/sitemap.xml",
+}
 _RECIPE_URL_PATTERN = "/rezepte-kochideen/rezepte/"
 _RECIPE_URL_PATTERN_FR = "/recettes-idees-cuisine/recettes/"
 
@@ -60,10 +60,14 @@ class SwissmilkAdapter(SourceAdapter):
     def discover(self) -> Iterable[str]:
         """Yield recipe URLs from Swissmilk's sitemaps.
 
-        Fetches DE and FR sitemaps and filters for URLs containing the
-        recipe path pattern.
+        Only fetches sitemaps for languages configured in the source settings.
+        Defaults to German-only when no config is present.
         """
-        for sitemap_url in _SITEMAP_URLS:
+        configured_languages = _get_configured_languages(self._settings, self.key)
+        for lang in configured_languages:
+            sitemap_url = _SITEMAP_BY_LANGUAGE.get(lang)
+            if not sitemap_url:
+                continue
             try:
                 response = self._http.get(sitemap_url)
                 response.raise_for_status()
@@ -549,3 +553,11 @@ def _detect_language(url: str) -> str:
     if "/fr/" in url:
         return "fr"
     return "de"
+
+
+def _get_configured_languages(settings: Settings, key: str) -> list[str]:
+    """Return the configured languages for a source, defaulting to [\"de\"]."""
+    source_cfg = settings.sources.get(key)
+    if source_cfg is None:
+        return ["de"]
+    return source_cfg.languages

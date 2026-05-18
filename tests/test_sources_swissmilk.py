@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from recipebrain.settings import ScrapingConfig, Settings
+from recipebrain.settings import ScrapingConfig, Settings, SourceConfig
 from recipebrain.sources.swissmilk import (
     SwissmilkAdapter,
     _detect_language,
@@ -43,8 +43,8 @@ class TestSwissmilkDiscover:
 
         urls = list(adapter.discover())
 
-        # Fixture has 3 recipe URLs, fetched from 2 sitemaps = 6 total
-        assert len(urls) == 6
+        # Default config is DE-only; fixture has 3 recipe URLs
+        assert len(urls) == 3
         assert all("/rezepte-kochideen/rezepte/" in url for url in urls)
 
     def test_discover_filters_non_recipe_urls(self):
@@ -65,7 +65,7 @@ class TestSwissmilkDiscover:
         for non_recipe in non_recipe_urls:
             assert non_recipe not in urls
 
-    def test_discover_fetches_both_sitemaps(self):
+    def test_discover_fetches_only_configured_language(self):
         adapter, mock_client = _adapter_with_mock_client()
         mock_response = MagicMock()
         mock_response.text = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
@@ -74,7 +74,26 @@ class TestSwissmilkDiscover:
 
         list(adapter.discover())
 
-        # Should fetch both DE and FR sitemaps
+        # Default config has no source entry → defaults to DE-only
+        assert mock_client.get.call_count == 1
+        mock_client.get.assert_called_with("https://www.swissmilk.ch/de/sitemap.xml")
+
+    def test_discover_fetches_both_sitemaps_when_configured(self):
+        settings = Settings(
+            scraping=ScrapingConfig(rate_limit_seconds=0),
+            sources={"swissmilk": SourceConfig(languages=["de", "fr"])},
+        )
+        adapter = SwissmilkAdapter(settings=settings)
+        mock_client = MagicMock()
+        adapter._client = mock_client
+        mock_response = MagicMock()
+        mock_response.text = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        list(adapter.discover())
+
+        # Configured for both DE and FR
         assert mock_client.get.call_count == 2
 
 

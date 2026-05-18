@@ -24,10 +24,10 @@ from recipebrain.sources.base import RawIngredientGroup, RawRecipe, SourceAdapte
 
 logger = logging.getLogger(__name__)
 
-_SITEMAP_URLS = (
-    "https://www.bettybossi.ch/sitemap-recipe-de.xml",
-    "https://www.bettybossi.ch/sitemap-recipe-fr.xml",
-)
+_SITEMAP_BY_LANGUAGE: dict[str, str] = {
+    "de": "https://www.bettybossi.ch/sitemap-recipe-de.xml",
+    "fr": "https://www.bettybossi.ch/sitemap-recipe-fr.xml",
+}
 _RECIPE_URL_PATTERN_DE = "/de/rezepte/rezept/"
 _RECIPE_URL_PATTERN_FR = "/fr/recettes/recette/"
 
@@ -60,9 +60,14 @@ class BettybossiAdapter(SourceAdapter):
     def discover(self) -> Iterable[str]:
         """Yield recipe URLs from Betty Bossi's sitemaps.
 
-        Fetches DE and FR recipe sitemaps and yields all recipe URLs found.
+        Only fetches sitemaps for languages configured in the source settings.
+        Defaults to German-only when no config is present.
         """
-        for sitemap_url in _SITEMAP_URLS:
+        configured_languages = _get_configured_languages(self._settings, self.key)
+        for lang in configured_languages:
+            sitemap_url = _SITEMAP_BY_LANGUAGE.get(lang)
+            if not sitemap_url:
+                continue
             try:
                 response = self._http.get(sitemap_url)
                 response.raise_for_status()
@@ -92,9 +97,17 @@ class BettybossiAdapter(SourceAdapter):
         recipes = extract_recipes(response.text, base_url=url)
         if recipes:
             raw = parse_recipe(recipes[0], source_url=url, language=language)
-            # Supplement with HTML ingredient groups and keywords
+            # Supplement with HTML ingredient groups only when JSON-LD lacks ingredients
             tree = HTMLParser(response.text)
-            raw.ingredient_groups = _extract_ingredient_groups(tree)
+            if not raw.ingredients_raw:
+                raw.ingredient_groups = _extract_ingredient_groups(tree)
+            # Betty Bossi misuses recipeCuisine for category tags — harvest as keywords
+            if raw.cuisine and "," in raw.cuisine:
+                cuisine_tags = [k.strip() for k in raw.cuisine.split(",") if k.strip()]
+                if not raw.keywords:
+                    raw.keywords = cuisine_tags
+                else:
+                    raw.keywords.extend(cuisine_tags)
             if not raw.keywords:
                 raw.keywords = _extract_keywords(tree)
                 if not raw.keywords:
@@ -104,8 +117,8 @@ class BettybossiAdapter(SourceAdapter):
             # Supplement classification from HTML when JSON-LD is incomplete
             if not raw.category:
                 raw.category = _extract_category_from_breadcrumb(tree)
-            if not raw.cuisine:
-                raw.cuisine = _extract_cuisine_from_tags(tree)
+            # Betty Bossi misuses recipeCuisine for category tags — always derive from HTML
+            raw.cuisine = _extract_cuisine_from_tags(tree)
             # Supplement with gallery images from HTML
             for img in _extract_gallery_images(tree):
                 if img not in raw.image_urls:
@@ -165,6 +178,44 @@ def _extract_description(tree: HTMLParser) -> str:
     return ""
 
 
+_NAV_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "hauptmenü",
+        "menu schliessen",
+        "jetzt entdecken",
+        "jetzt weiterstöbern",
+        "werbung buchen",
+        "shop",
+    }
+)
+
+_MAX_INGREDIENT_LENGTH = 200
+
+
+def _is_valid_ingredient_text(text: str) -> bool:
+    """Check whether text looks like a genuine ingredient line.
+
+    Rejects navigation/menu text that is too long or contains known
+    navigation keywords.
+
+    Examples:
+        >>> _is_valid_ingredient_text("200 g Mehl")
+        True
+        >>> _is_valid_ingredient_text("ShopHauptmenüMenu SchliessenShopJetzt entdecken")
+        False
+        >>> _is_valid_ingredient_text("")
+        False
+        >>> _is_valid_ingredient_text("x" * 250)
+        False
+    """
+    if not text:
+        return False
+    if len(text) > _MAX_INGREDIENT_LENGTH:
+        return False
+    lower = text.lower()
+    return not any(kw in lower for kw in _NAV_KEYWORDS)
+
+
 def _extract_ingredients(tree: HTMLParser) -> list[str]:
     """Extract ingredients from Betty Bossi's structured ingredient lists.
 
@@ -174,7 +225,7 @@ def _extract_ingredients(tree: HTMLParser) -> list[str]:
     for li in tree.css("li[itemprop='recipeIngredient'], .ingredient-item"):
         text = (li.text() or "").strip()
         text = " ".join(text.split())
-        if text:
+        if text and _is_valid_ingredient_text(text):
             ingredients.append(text)
 
     # Fallback: look for ingredient rows in step blocks
@@ -182,8 +233,13 @@ def _extract_ingredients(tree: HTMLParser) -> list[str]:
         for li in tree.css("ul li"):
             text = (li.text() or "").strip()
             text = " ".join(text.split())
-            if text and any(
-                unit in text for unit in ("g ", "kg ", "dl ", "l ", "EL ", "TL ", "Stk", "Prise")
+            if (
+                text
+                and _is_valid_ingredient_text(text)
+                and any(
+                    unit in text
+                    for unit in ("g ", "kg ", "dl ", "l ", "EL ", "TL ", "Stk", "Prise")
+                )
             ):
                 ingredients.append(text)
 
@@ -236,7 +292,7 @@ def _extract_ingredient_groups(tree: HTMLParser) -> list[RawIngredientGroup]:
             elif child.tag == "li":
                 item_text = (child.text() or "").strip()
                 item_text = " ".join(item_text.split())
-                if item_text:
+                if item_text and _is_valid_ingredient_text(item_text):
                     current_items.append(item_text)
 
         # Save the last group
@@ -445,6 +501,14 @@ def _detect_language(url: str) -> str:
     if "/fr/" in url:
         return "fr"
     return "de"
+
+
+def _get_configured_languages(settings: Settings, key: str) -> list[str]:
+    """Return the configured languages for a source, defaulting to [\"de\"]."""
+    source_cfg = settings.sources.get(key)
+    if source_cfg is None:
+        return ["de"]
+    return source_cfg.languages
 
 
 def _extract_category_from_breadcrumb(tree: HTMLParser) -> str:
