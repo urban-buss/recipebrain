@@ -159,7 +159,7 @@ def _resize_and_compress(
         >>> result = _resize_and_compress(b'...valid_jpeg...', cfg)  # doctest: +SKIP
     """
     try:
-        img = Image.open(io.BytesIO(data))
+        img: Image.Image = Image.open(io.BytesIO(data))
     except Exception:
         logger.warning("Failed to open image for processing — storing raw bytes")
         return data
@@ -172,7 +172,7 @@ def _resize_and_compress(
     if img.width > config.max_width:
         ratio = config.max_width / img.width
         new_size = (config.max_width, int(img.height * ratio))
-        img = img.resize(new_size, Image.LANCZOS)
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
 
     # Determine output format
     buf = io.BytesIO()
@@ -238,6 +238,7 @@ def download_recipe_images(
         # Rewrite CDN URL to request a smaller variant
         fetch_url = url
         if processing_enabled:
+            assert config is not None
             fetch_url = _rewrite_cdn_url(url, config.max_width)
 
         try:
@@ -257,6 +258,7 @@ def download_recipe_images(
 
             # Resize and recompress if processing is enabled
             if processing_enabled:
+                assert config is not None
                 processed = _resize_and_compress(image_data, config)
                 if processed is None:
                     logger.debug("Rejected image (tracking pixel): %s", url)
