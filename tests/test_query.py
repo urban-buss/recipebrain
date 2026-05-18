@@ -285,3 +285,87 @@ class TestQueryEngine:
     def test_output_dir_property(self, tmp_path):
         engine = QueryEngine(tmp_path)
         assert engine.output_dir == tmp_path
+
+
+class TestVirtualComputedTags:
+    """Verify that the recipes view exposes a virtual computed_tags column."""
+
+    def test_computed_tags_aggregates_scalars(self, tmp_path):
+        write_table(
+            "recipes",
+            [
+                {
+                    "id": 1,
+                    "title": "Test",
+                    "primary_protein": "poultry",
+                    "taste_profile": "savoury",
+                    "weight_class": "light",
+                    "cooking_method": "grilled",
+                    "course": "main",
+                    "cuisine": "swiss",
+                    "difficulty": "easy",
+                    "dietary_flags": ["quick"],
+                    "food_groups": ["poultry"],
+                }
+            ],
+            tmp_path,
+        )
+        results = execute_query("SELECT computed_tags FROM recipes WHERE id = 1", tmp_path)
+        tags = sorted(results[0]["computed_tags"])
+        assert "poultry" in tags
+        assert "savoury" in tags
+        assert "light" in tags
+        assert "grilled" in tags
+        assert "main" in tags
+        assert "swiss" in tags
+        assert "easy" in tags
+        assert "quick" in tags
+        # Deduplication: poultry appears in both primary_protein and food_groups
+        assert tags.count("poultry") == 1
+
+    def test_computed_tags_excludes_nulls(self, tmp_path):
+        write_table(
+            "recipes",
+            [
+                {
+                    "id": 1,
+                    "title": "Minimal",
+                    "primary_protein": None,
+                    "taste_profile": None,
+                    "weight_class": None,
+                    "cooking_method": None,
+                    "course": None,
+                    "cuisine": None,
+                    "difficulty": None,
+                    "dietary_flags": [],
+                    "food_groups": [],
+                }
+            ],
+            tmp_path,
+        )
+        results = execute_query("SELECT computed_tags FROM recipes WHERE id = 1", tmp_path)
+        assert results[0]["computed_tags"] == []
+
+    def test_computed_tags_sorted(self, tmp_path):
+        write_table(
+            "recipes",
+            [
+                {
+                    "id": 1,
+                    "title": "Sorted",
+                    "primary_protein": "poultry",
+                    "taste_profile": "savoury",
+                    "weight_class": "light",
+                    "cooking_method": None,
+                    "course": "main",
+                    "cuisine": None,
+                    "difficulty": "easy",
+                    "dietary_flags": ["quick", "dairy-free"],
+                    "food_groups": [],
+                }
+            ],
+            tmp_path,
+        )
+        results = execute_query("SELECT computed_tags FROM recipes WHERE id = 1", tmp_path)
+        tags = results[0]["computed_tags"]
+        assert tags == sorted(tags)

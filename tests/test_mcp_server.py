@@ -52,12 +52,7 @@ def output_dir(tmp_path: Path) -> Path:
         "weight_class": ["heavy", "light", "medium"],
         "cooking_method": ["fried", "fried", None],
         "dietary_flags": [[], ["vegetarian", "vegan"], ["vegetarian"]],
-        "food_groups": [["veal", "fried", "heavy"], ["light"], ["cheese", "medium"]],
-        "computed_tags": [
-            ["heavy", "main", "medium", "savoury", "swiss", "veal"],
-            ["easy", "light", "savoury", "side", "swiss", "vegan", "vegetarian"],
-            ["cheese", "easy", "main", "savoury", "swiss", "vegetarian"],
-        ],
+        "food_groups": [["red_meat"], [], ["cheese"]],
     }
     table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
     pq.write_table(table, tmp_path / "recipes.parquet")

@@ -78,23 +78,23 @@ class TestComputePrimaryProtein:
         rows = [_ingredient_row(ingredient_id=7, quantity=200)]
         assert compute_primary_protein(rows) == "sausage"
 
-    def test_no_meat_no_dairy_is_vegan(self):
+    def test_no_meat_no_dairy_returns_none(self):
         rows = [_ingredient_row(ingredient_id=42)]  # carrot
-        assert compute_primary_protein(rows) == "vegan"
+        assert compute_primary_protein(rows) is None
 
-    def test_no_meat_with_dairy_is_vegetarian(self):
+    def test_no_meat_with_dairy_returns_none(self):
         rows = [
             _ingredient_row(ingredient_id=42),  # carrot
             _ingredient_row(ingredient_id=20),  # butter
         ]
-        assert compute_primary_protein(rows) == "vegetarian"
+        assert compute_primary_protein(rows) is None
 
-    def test_cheese_dominant(self):
+    def test_cheese_dominant_returns_none(self):
         rows = [
             _ingredient_row(ingredient_id=23, quantity=400),  # gruyère
             _ingredient_row(ingredient_id=40),  # onion
         ]
-        assert compute_primary_protein(rows) == "cheese"
+        assert compute_primary_protein(rows) is None
 
     def test_mixed_proteins(self):
         rows = [
@@ -112,6 +112,37 @@ class TestComputePrimaryProtein:
 
     def test_unresolved_ingredients_returns_none(self):
         rows = [_ingredient_row(ingredient_id=None)]
+        assert compute_primary_protein(rows) is None
+
+    def test_unresolved_meat_raw_text_fallback(self):
+        """Unresolved ingredient with meat keyword in raw_text → 'meat'."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="800 g Pouletschenkel-Steaks")]
+        assert compute_primary_protein(rows) == "meat"
+
+    def test_unresolved_fish_raw_text_fallback(self):
+        """Unresolved ingredient with fish keyword in raw_text → 'fish'."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="250 g Lachsfilet ohne Haut")]
+        assert compute_primary_protein(rows) == "fish"
+
+    def test_unresolved_meat_and_fish_raw_text_mixed(self):
+        """Unresolved ingredients with both meat and fish → 'mixed'."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="500 g Poulet"),
+            _ingredient_row(ingredient_id=None, raw_text="200 g Crevetten"),
+        ]
+        assert compute_primary_protein(rows) == "mixed"
+
+    def test_resolved_veggie_with_unresolved_meat_fallback(self):
+        """Resolved vegetables + unresolved meat raw text → 'meat'."""
+        rows = [
+            _ingredient_row(ingredient_id=40),  # onion (resolved)
+            _ingredient_row(ingredient_id=None, raw_text="800 g Rindfleisch"),
+        ]
+        assert compute_primary_protein(rows) == "meat"
+
+    def test_unresolved_no_meat_keywords_returns_none(self):
+        """Unresolved ingredient without meat/fish keywords → None."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="2 cm Ingwer")]
         assert compute_primary_protein(rows) is None
 
     def test_empty_ingredients(self):
@@ -313,6 +344,46 @@ class TestComputeDietaryFlags:
         flags = compute_dietary_flags(rows, total_minutes=20)
         assert flags == ["quick"]
 
+    def test_unresolved_meat_raw_text_not_vegetarian(self):
+        """Unresolved ingredient with meat keyword should NOT be vegetarian."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="800 g Pouletschenkel-Steaks"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+        assert "vegan" not in flags
+
+    def test_unresolved_fish_raw_text_not_vegetarian(self):
+        """Unresolved ingredient with fish keyword should NOT be vegetarian."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="600 g Dorschfilet"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+        assert "vegan" not in flags
+
+    def test_resolved_veggie_with_unresolved_meat_not_vegetarian(self):
+        """Resolved veggies + unresolved meat raw text → not vegetarian."""
+        rows = [
+            _ingredient_row(ingredient_id=40),  # onion (resolved)
+            _ingredient_row(ingredient_id=84),  # olive oil (resolved)
+            _ingredient_row(ingredient_id=None, raw_text="500 g Rindfleisch"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+        assert "vegan" not in flags
+        assert "dairy-free" in flags
+
+    def test_resolved_veggie_with_unresolved_non_meat_is_vegan(self):
+        """Resolved veggies + unresolved non-meat raw text → still vegan."""
+        rows = [
+            _ingredient_row(ingredient_id=40),  # onion (resolved)
+            _ingredient_row(ingredient_id=None, raw_text="2 cm Ingwer"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" in flags
+        assert "vegan" in flags
+
 
 # ---------------------------------------------------------------------------
 # compute_food_groups
@@ -320,22 +391,28 @@ class TestComputeDietaryFlags:
 
 
 class TestComputeFoodGroups:
-    """compute_food_groups — cellarbrain-compatible pairing vocabulary."""
+    """compute_food_groups — true food-group tags only."""
 
     def test_poultry_adds_pairing_tags(self):
-        rows = [_ingredient_row(ingredient_id=1)]  # chicken
+        rows = [_ingredient_row(ingredient_id=1)]  # chicken — pairing_tags include "poultry"
         groups = compute_food_groups(rows, "grilled", "light")
         assert "poultry" in groups
-        assert "grilled" in groups
-        assert "light" in groups
+        # Cooking method and weight class are NOT mixed into food_groups —
+        # they live in their own scalar columns + computed_tags.
+        assert "grilled" not in groups
+        assert "light" not in groups
 
-    def test_cooking_method_added(self):
+    def test_cooking_method_not_added(self):
+        """Cooking method must not pollute food_groups (issue #042)."""
         groups = compute_food_groups([], "braised", None)
-        assert "braised" in groups
+        assert "braised" not in groups
+        assert groups == []
 
-    def test_weight_class_added(self):
+    def test_weight_class_not_added(self):
+        """Weight class must not pollute food_groups (issue #042)."""
         groups = compute_food_groups([], None, "heavy")
-        assert "heavy" in groups
+        assert "heavy" not in groups
+        assert groups == []
 
     def test_empty_ingredients_no_method_no_weight(self):
         groups = compute_food_groups([], None, None)
@@ -347,11 +424,16 @@ class TestComputeFoodGroups:
         assert groups == sorted(groups)
 
     def test_non_vocab_tags_filtered(self):
-        # Ingredient pairing tags not in CELLARBRAIN_FOOD_GROUP_VOCAB are dropped
-        rows = [_ingredient_row(ingredient_id=42)]  # carrot — tags=["root-veg", "sweet"]
+        """Pairing tags outside the food-group vocab are dropped.
+
+        Carrot's pairing_tags ("root-veg", "sweet") are not food groups —
+        "sweet" is now a taste descriptor, not a food group.
+        """
+        rows = [_ingredient_row(ingredient_id=42)]  # carrot
         groups = compute_food_groups(rows, None, None)
         assert "root-veg" not in groups
-        assert "sweet" in groups  # "sweet" IS in the vocab
+        assert "sweet" not in groups
+        assert groups == []
 
 
 # ---------------------------------------------------------------------------
@@ -426,4 +508,40 @@ class TestBuildComputedTags:
         )
         assert "vegetarian" in tags
         assert "vegan" in tags
-        assert "dairy-free" in tags
+
+    def test_food_groups_included(self):
+        """food_groups members must be re-aggregated into computed_tags (issue #042)."""
+        tags = build_computed_tags(
+            None,
+            None,
+            None,
+            None,
+            [],
+            None,
+            None,
+            None,
+            ["cheese", "poultry"],
+        )
+        assert "cheese" in tags
+        assert "poultry" in tags
+
+    def test_food_groups_default_none(self):
+        """Omitting food_groups must keep prior behaviour."""
+        tags = build_computed_tags("poultry", None, None, None, [], None, None, None)
+        assert tags == ["poultry"]
+
+    def test_food_groups_deduplicated_with_protein(self):
+        """Overlap between food_groups and primary_protein must be deduplicated."""
+        tags = build_computed_tags(
+            "poultry",
+            None,
+            None,
+            None,
+            [],
+            None,
+            None,
+            None,
+            ["poultry", "cheese"],
+        )
+        assert tags.count("poultry") == 1
+        assert "cheese" in tags

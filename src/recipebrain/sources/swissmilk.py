@@ -101,6 +101,8 @@ class SwissmilkAdapter(SourceAdapter):
         if not title:
             raise ValueError(f"No recipe title found at {url}")
 
+        image_urls = _extract_images(tree)
+
         return RawRecipe(
             title=title,
             description=_extract_description(tree),
@@ -109,7 +111,8 @@ class SwissmilkAdapter(SourceAdapter):
             yield_amount=_extract_yield(tree),
             prep_time=_extract_prep_time(tree),
             cook_time=_extract_cook_time(tree),
-            image_urls=_extract_images(tree),
+            image_urls=image_urls,
+            image_captions=[title] * len(image_urls),
             keywords=_extract_keywords(tree),
             source_url=url,
             language=language,

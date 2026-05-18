@@ -60,7 +60,9 @@ def parse_recipe(data: dict, source_url: str = "", language: str = "de") -> RawR
         yield_amount=_extract_yield(data.get("recipeYield")),
         prep_time=data.get("prepTime", "") or "",
         cook_time=data.get("cookTime", "") or "",
+        total_time=data.get("totalTime", "") or "",
         image_urls=_extract_images(data.get("image")),
+        image_captions=_extract_image_captions(data.get("image")),
         keywords=_extract_keywords(data.get("keywords")),
         source_url=source_url,
         language=language,
@@ -170,6 +172,43 @@ def _extract_images(raw: str | list | dict | None) -> list[str]:
                 if url:
                     urls.append(url)
         return urls
+    return []
+
+
+def _extract_image_captions(raw: str | list | dict | None) -> list[str]:
+    """Extract image captions from the image field (parallel to _extract_images).
+
+    Returns a caption for each image URL extracted by ``_extract_images``.
+    Captions come from the ImageObject ``caption`` or ``name`` field.
+    Returns empty string when no caption is available for a given image.
+
+    Examples:
+        >>> _extract_image_captions("https://example.com/img.jpg")
+        ['']
+        >>> _extract_image_captions({"url": "https://example.com/img.jpg", "caption": "A dish"})
+        ['A dish']
+    """
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [""] if raw else []
+    if isinstance(raw, dict):
+        url = raw.get("url", "")
+        if not url:
+            return []
+        caption = (raw.get("caption") or raw.get("name") or "").strip()
+        return [caption]
+    if isinstance(raw, list):
+        captions: list[str] = []
+        for item in raw:
+            if isinstance(item, str) and item:
+                captions.append("")
+            elif isinstance(item, dict):
+                url = item.get("url", "")
+                if url:
+                    caption = (item.get("caption") or item.get("name") or "").strip()
+                    captions.append(caption)
+        return captions
     return []
 
 

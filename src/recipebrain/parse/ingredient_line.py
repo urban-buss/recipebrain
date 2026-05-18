@@ -93,6 +93,14 @@ _UNITS: dict[str, str] = {
     "tropfen": "Tropfen",
     "tasse": "Tasse",
     "tassen": "Tasse",
+    "cm": "cm",
+    "zweiglein": "Zweig",
+    "päckli": "Packung",
+    "packli": "Packung",
+    "würfel": "Stück",
+    "wurfel": "Stück",
+    "tranchen": "Scheibe",
+    "briefchen": "Packung",
     # French
     "pincée": "Prise",
     "pincee": "Prise",
@@ -144,6 +152,13 @@ _MULTI_TOKEN_UNITS: list[tuple[re.Pattern[str], str]] = [
 # French preposition between unit and ingredient (e.g. "de", "d'", "du")
 _FRENCH_PREP_RE = re.compile(r"^(?:de\s+|d['']\s*|du\s+)", re.IGNORECASE)
 
+# Vague quantity words (German/French) that indicate "some" amount without a number.
+# These are stripped from the beginning of lines, treated as an implicit quantity.
+_VAGUE_QUANTITY_RE = re.compile(
+    r"^(?:wenig|etwas|genügend|reichlich|viel|ein\s+wenig|sehr\s+wenig)\s+",
+    re.IGNORECASE,
+)
+
 
 def parse_ingredient_line(line: str) -> ParsedIngredient:
     """Parse a raw ingredient line into structured components.
@@ -172,6 +187,11 @@ def parse_ingredient_line(line: str) -> ParsedIngredient:
 
     if not line:
         raise ValueError("Ingredient line is empty")
+
+    # Strip vague quantity words (e.g. "wenig Pfeffer" → "Pfeffer")
+    vague_match = _VAGUE_QUANTITY_RE.match(line)
+    if vague_match:
+        line = line[vague_match.end() :]
 
     match = _QUANTITY_RE.match(line)
     if not match:

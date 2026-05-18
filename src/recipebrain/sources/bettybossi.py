@@ -97,10 +97,15 @@ class BettybossiAdapter(SourceAdapter):
         recipes = extract_recipes(response.text, base_url=url)
         if recipes:
             raw = parse_recipe(recipes[0], source_url=url, language=language)
-            # Supplement with HTML ingredient groups only when JSON-LD lacks ingredients
+            # JSON-LD never provides ingredient groups — extract from HTML
             tree = HTMLParser(response.text)
+            html_groups = _extract_ingredient_groups(tree)
             if not raw.ingredients_raw:
-                raw.ingredient_groups = _extract_ingredient_groups(tree)
+                # No JSON-LD ingredients — use HTML groups as primary source
+                raw.ingredient_groups = html_groups
+            elif any(g.label for g in html_groups):
+                # JSON-LD has ingredients but HTML has labeled groups — use them
+                raw.ingredient_groups = html_groups
             # Betty Bossi misuses recipeCuisine for category tags — harvest as keywords
             if raw.cuisine and "," in raw.cuisine:
                 cuisine_tags = [k.strip() for k in raw.cuisine.split(",") if k.strip()]
@@ -120,9 +125,16 @@ class BettybossiAdapter(SourceAdapter):
             # Betty Bossi misuses recipeCuisine for category tags — always derive from HTML
             raw.cuisine = _extract_cuisine_from_tags(tree)
             # Supplement with gallery images from HTML
-            for img in _extract_gallery_images(tree):
-                if img not in raw.image_urls:
-                    raw.image_urls.append(img)
+            for img_url, alt_text in _extract_gallery_images(tree):
+                if img_url not in raw.image_urls:
+                    raw.image_urls.append(img_url)
+                    raw.image_captions.append(alt_text or raw.title)
+            # Ensure captions list matches image_urls length; use title as fallback
+            while len(raw.image_captions) < len(raw.image_urls):
+                raw.image_captions.append(raw.title)
+            for i, cap in enumerate(raw.image_captions):
+                if not cap:
+                    raw.image_captions[i] = raw.title
             return raw
 
         # HTML fallback
@@ -133,6 +145,7 @@ class BettybossiAdapter(SourceAdapter):
 
         groups = _extract_ingredient_groups(tree)
         ingredients_flat = [item for g in groups for item in g.items]
+        image_urls = _extract_images(tree)
 
         return RawRecipe(
             title=title,
@@ -143,7 +156,9 @@ class BettybossiAdapter(SourceAdapter):
             yield_amount=_extract_yield(tree),
             prep_time=_extract_time(tree, "prep"),
             cook_time=_extract_time(tree, "cook"),
-            image_urls=_extract_images(tree),
+            total_time=_extract_time(tree, "total"),
+            image_urls=image_urls,
+            image_captions=[title] * len(image_urls),
             keywords=_extract_keywords(tree),
             source_url=url,
             language=language,
@@ -340,9 +355,10 @@ def _extract_time(tree: HTMLParser, kind: str) -> str:
 
     Args:
         tree: Parsed HTML tree.
-        kind: Either 'prep' or 'cook'.
+        kind: Either 'prep', 'cook', or 'total'.
     """
-    prop = "prepTime" if kind == "prep" else "cookTime"
+    prop_map = {"prep": "prepTime", "cook": "cookTime", "total": "totalTime"}
+    prop = prop_map.get(kind, "totalTime")
     node = tree.css_first(f"[itemprop='{prop}']")
     if node:
         return (node.attributes.get("content") or node.text() or "").strip()
@@ -368,21 +384,24 @@ def _extract_images(tree: HTMLParser) -> list[str]:
     return images
 
 
-def _extract_gallery_images(tree: HTMLParser) -> list[str]:
+def _extract_gallery_images(tree: HTMLParser) -> list[tuple[str, str]]:
     """Extract additional recipe images from Betty Bossi's page gallery.
 
     Scans HTML for gallery/carousel/slider image elements that are not
-    captured by JSON-LD. Returns deduplicated URLs from media.bettybossi.ch.
+    captured by JSON-LD. Returns deduplicated (url, alt_text) tuples from
+    media.bettybossi.ch.
 
     Examples:
         >>> from selectolax.parser import HTMLParser
-        >>> html = '<div class="recipe-gallery"><img data-src="https://media.bettybossi.ch/img1.jpg"></div>'
+        >>> html = ('<div class="recipe-gallery">'
+        ...        '<img data-src="https://media.bettybossi.ch/img1.jpg"'
+        ...        ' alt="Dish photo"></div>')
         >>> _extract_gallery_images(HTMLParser(html))
-        ['https://media.bettybossi.ch/img1.jpg']
+        [('https://media.bettybossi.ch/img1.jpg', 'Dish photo')]
     """
-    images: list[str] = []
+    images: list[tuple[str, str]] = []
     seen: set[str] = set()
-    selectors = ".recipe-gallery img, .recipe-slider img, .recipe-carousel img, picture source"
+    selectors = ".recipe-gallery img, .recipe-slider img, .recipe-carousel img, picture img"
     for node in tree.css(selectors):
         src = (
             node.attributes.get("data-src")
@@ -391,7 +410,8 @@ def _extract_gallery_images(tree: HTMLParser) -> list[str]:
             or ""
         ).strip()
         if src and "media.bettybossi.ch" in src and src not in seen:
-            images.append(src)
+            alt = (node.attributes.get("alt") or "").strip()
+            images.append((src, alt))
             seen.add(src)
     return images
 

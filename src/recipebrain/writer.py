@@ -68,7 +68,6 @@ SCHEMAS: dict[str, pa.Schema] = {
             ("cooking_method", pa.string()),
             ("dietary_flags", pa.list_(pa.string())),
             ("food_groups", pa.list_(pa.string())),
-            ("computed_tags", pa.list_(pa.string())),
         ]
     ),
     "recipe_steps": pa.schema(

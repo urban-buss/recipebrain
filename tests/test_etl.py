@@ -88,6 +88,61 @@ class TestRunSource:
         images = read_table("recipe_images", tmp_path)
         assert images.num_rows == 2  # 1 image per recipe
 
+    def test_writes_tags_from_keywords(self, tmp_path):
+        """ETL populates tags and recipe_tags from original_keywords."""
+        recipes = {
+            "https://example.com/r/1": RawRecipe(
+                title="Gemüsepfanne",
+                ingredients_raw=["200 g Gemüse"],
+                steps_raw=["Braten."],
+                source_url="https://example.com/r/1",
+                keywords=["Gemüse", "Familien-Gerichte"],
+            ),
+            "https://example.com/r/2": RawRecipe(
+                title="Party-Salat",
+                ingredients_raw=["100 g Salat"],
+                steps_raw=["Mischen."],
+                source_url="https://example.com/r/2",
+                keywords=["Salat", "Party", "Gemüse"],
+            ),
+        }
+        adapter = FakeAdapter(urls=list(recipes.keys()), recipes=recipes)
+
+        result = _run_source(adapter, tmp_path)
+
+        assert result.fetched == 2
+
+        # Verify tags were created
+        tags = read_table("tags", tmp_path)
+        assert tags.num_rows > 0
+
+        tag_keys = set(tags.column("key").to_pylist())
+        assert "gemüse" in tag_keys
+        assert "party" in tag_keys
+        assert "familien-gerichte" in tag_keys
+        assert "salat" in tag_keys
+
+        # Verify facets
+        key_to_facet = dict(
+            zip(tags.column("key").to_pylist(), tags.column("facet").to_pylist(), strict=False)
+        )
+        assert key_to_facet["gemüse"] == "ingredient"
+        assert key_to_facet["party"] == "occasion"
+        assert key_to_facet["familien-gerichte"] == "audience"
+
+        # Verify recipe_tags links
+        recipe_tags = read_table("recipe_tags", tmp_path)
+        assert recipe_tags.num_rows > 0
+
+        # Recipe 1 should have 2 tags, recipe 2 should have 3
+        rt_rows = recipe_tags.to_pylist()
+        recipe_1_id = read_table("recipes", tmp_path).column("id").to_pylist()[0]
+        recipe_2_id = read_table("recipes", tmp_path).column("id").to_pylist()[1]
+        r1_links = [r for r in rt_rows if r["recipe_id"] == recipe_1_id]
+        r2_links = [r for r in rt_rows if r["recipe_id"] == recipe_2_id]
+        assert len(r1_links) == 2
+        assert len(r2_links) == 3
+
     def test_skips_existing_urls(self, tmp_path):
         # Pre-populate with one recipe
         write_table(

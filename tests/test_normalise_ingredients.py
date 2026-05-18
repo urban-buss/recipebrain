@@ -101,6 +101,108 @@ class TestNormaliseIngredient:
         """Regression test for issue #016: inputs with quantity+unit prefixes."""
         assert normalise_ingredient(raw) == expected
 
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Issue #052: vague quantity modifiers should not prevent matching.
+            ("wenig Pfeffer", "pepper-black"),
+            ("etwas Salz", "salt"),
+            ("reichlich Butter", "butter"),
+            ("viel Wasser", "water"),
+            ("etwas Petersilie", "parsley"),
+            ("ein wenig Pfeffer", "pepper-black"),
+            ("sehr wenig Salz", "salt"),
+            ("genügend Mehl", "flour"),
+        ],
+    )
+    def test_vague_quantity_modifier_stripped(self, raw: str, expected: str) -> None:
+        """Regression test for issue #052: vague quantity modifiers like 'wenig'."""
+        assert normalise_ingredient(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Issue #045: Swiss meat-cut aliases that previously failed to match.
+            ("Pouletfleisch", "chicken-breast"),
+            ("Pouletbrust-Charbonnade", "chicken-breast"),
+            ("Pouletschenkel-Steaks", "chicken-thigh"),
+            ("Pouletschenkel-Steak", "chicken-thigh"),
+            ("Schweinskoteletts", "pork-chop"),
+            ("Schweinsplätzli", "pork-chop"),
+            ("Lammnierstück", "lamb"),
+            ("Lammnierstücke", "lamb"),
+            ("T-Bone-Steak", "beef-steak"),
+            ("T-Bone-Steaks", "beef-steak"),
+            ("Rindshohrücken", "beef-steak"),
+            ("Fleischtomate", "tomato"),
+            ("Fleischtomaten", "tomato"),
+            ("1 Fleischtomate", "tomato"),
+            ("Oreganoblättchen", "oregano"),
+            ("Sardellenfilet", "anchovy"),
+            ("Sardellenfilets", "anchovy"),
+        ],
+    )
+    def test_swiss_meat_cut_aliases(self, raw: str, expected: str) -> None:
+        """Regression test for issue #045: Swiss meat-cut and produce aliases."""
+        assert normalise_ingredient(raw) == expected
+
+
+class TestSwissMeatCutRawText:
+    """Regression tests for issue #045: full raw text with quantities/qualifiers."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Bare count stripping (no unit between number and ingredient)
+            ("4 Schweinshals-Steaks (je ca. 200 g)", "pork-chop"),
+            ("8 Rindsplätzli (z.B. Eckstück, je ca. 80 g)", "beef-steak"),
+            ("16 Pouletflügeli", "chicken-wing"),
+            ("4 Bauernbratwürste (z.B. Pro Montagna)", "sausage-bratwurst"),
+            ("2 Schweinskoteletts (je ca. 200 g)", "pork-chop"),
+            ("4 Schweinsbratwürste", "sausage-bratwurst"),
+            # Tranchen as quantity unit
+            ("8 Tranchen Bratspeck", "bacon"),
+            ("4 Tranchen Hinterschinken", "ham"),
+            # "in Tranchen" / "am Stück" trailing qualifier stripping
+            ("130 g Bratspeck in Tranchen", "bacon"),
+            ("200 g Schinken in Tranchen", "ham"),
+            ("800 g Entrecôte am Stück (z. B. knochengereift)", "beef-steak"),
+            ("275 g Bauernspeck am Stück", "bacon"),
+            # "ohne Haut" stripping with broader parenthetical removal
+            ("600 g Lachsfilet ohne Haut (Bio)", "salmon-fillet"),
+            ("4 Lachsfilets ohne Haut (je ca. 160 g), graue Fettschicht entfernt", "salmon-fillet"),
+            ("800 g Pouletschenkel-Steaks ohne Haut", "chicken-thigh"),
+            # "oder" alternative stripping
+            ("100 g Pancetta oder Speck", "pancetta"),
+            # Trailing comma stripping (prep instructions)
+            ("12 Schweinsplätzli (z. B. Hals, je ca. 100 g), flach geklopft", "pork-chop"),
+            ("250 g Lachsfilet ohne Haut , in ca. 2 cm grossen Würfeln", "salmon-fillet"),
+            # Adjective stripping ("geschnetzeltes", "rohe")
+            ("250 g geschnetzeltes Pouletfleisch", "chicken-breast"),
+            ("12 geschälte rohe Crevettenschwänze", "shrimp"),
+            # New catalogue entries
+            ("800 g Schweinshals", "pork-neck"),
+            ("1.2 kg Kalbsbraten (z. B. Schulter)", "veal-roast"),
+            ("4 Spareribs (Schweinsbrustspitz-Rippchen)", "spareribs"),
+            ("1.5 kg Spareribs am Stück (Schweinsbrustspitz-Rippchen)", "spareribs"),
+            ("100 g Bündnerfleisch", "bundnerfleisch"),
+            ("8 Felchenfilets (je ca. 60 g)", "char-fillet"),
+            ("1 Dose Sardellenfilets (ca. 25 g), kalt abgespült", "anchovy"),
+            # New aliases
+            ("4 Lachstranchen mit Haut (MSC, je ca. 150 g)", "salmon-fillet"),
+            ("160 g Speckwürfeli", "bacon"),
+            ("150 g Schinkenwürfeli", "ham"),
+            ("80 g Schinkenspeck in Tranchen (Bacon)", "ham"),
+            ("4 Pouletbrust-Charbonnade (je ca. 70 g)", "chicken-breast"),
+            ("50 g Rohschinken in Tranchen", "prosciutto"),
+            ("600 g Lammnierstücke", "lamb"),
+            ("1.2 kg Rindshohrücken", "beef-steak"),
+        ],
+    )
+    def test_raw_text_resolves(self, raw: str, expected: str) -> None:
+        """Full raw ingredient text with quantities/qualifiers resolves correctly."""
+        assert normalise_ingredient(raw) == expected
+
 
 # ---------------------------------------------------------------------------
 # Tests: get_ingredient
