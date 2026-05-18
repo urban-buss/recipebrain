@@ -49,6 +49,24 @@ _FORBIDDEN_FUNCTIONS = re.compile(
 _conn_cache: dict[Path, duckdb.DuckDBPyConnection] = {}
 _conn_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Virtual computed_tags column — aggregates classification scalars + list
+# fields into a single searchable bag, computed at query time rather than
+# persisted on disk (resolves issue #043).
+# ---------------------------------------------------------------------------
+
+_COMPUTED_TAGS_EXPR = """\
+list_sort(list_distinct(list_filter(
+  list_concat(
+    list_concat(
+      [primary_protein, taste_profile, weight_class, cooking_method, course, cuisine, difficulty],
+      coalesce(dietary_flags, []::VARCHAR[])
+    ),
+    coalesce(food_groups, []::VARCHAR[])
+  ),
+  x -> x IS NOT NULL AND x != ''
+))) AS computed_tags"""
+
 
 def invalidate_connection(output_dir: Path | None = None) -> None:
     """Invalidate the cached connection for *output_dir*, or all if None."""
@@ -144,7 +162,14 @@ def create_connection(output_dir: Path) -> duckdb.DuckDBPyConnection:
         if parquet_path.exists():
             # Use forward slashes for DuckDB path compatibility
             path_str = str(parquet_path).replace("\\", "/")
-            conn.execute(f"CREATE VIEW {entity} AS SELECT * FROM read_parquet('{path_str}')")
+            if entity == "recipes":
+                # Add virtual computed_tags column (issue #043)
+                conn.execute(
+                    f"CREATE VIEW {entity} AS SELECT *, {_COMPUTED_TAGS_EXPR} "
+                    f"FROM read_parquet('{path_str}')"
+                )
+            else:
+                conn.execute(f"CREATE VIEW {entity} AS SELECT * FROM read_parquet('{path_str}')")
 
     with _conn_lock:
         # Another thread may have populated the cache; close ours if so

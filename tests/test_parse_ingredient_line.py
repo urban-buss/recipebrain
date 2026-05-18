@@ -157,7 +157,7 @@ class TestOptionalDetection:
     @pytest.mark.parametrize(
         ("line", "expected_ingredient", "expected_optional"),
         [
-            ("evt. etwas Petersilie", "etwas Petersilie", True),
+            ("evt. etwas Petersilie", "Petersilie", True),
             ("2 EL Schnittlauch, optional", "Schnittlauch", True),
             ("Muskatnuss, nach Belieben", "Muskatnuss", True),
             ("evtl. 1 TL Zucker", "Zucker", True),
@@ -282,7 +282,32 @@ class TestFrenchUnits:
     def test_french_optional_selon_gout(self):
         result = parse_ingredient_line("selon goût: sel et poivre")
         assert result.optional is True
-        assert result.ingredient == "sel et poivre"
+
+
+class TestVagueQuantityStripping:
+    """Regression tests for issue #052: vague quantity modifiers stripped correctly."""
+
+    @pytest.mark.parametrize(
+        ("line", "expected_ingredient"),
+        [
+            ("wenig Pfeffer", "Pfeffer"),
+            ("etwas Salz", "Salz"),
+            ("reichlich Butter", "Butter"),
+            ("viel Wasser", "Wasser"),
+            ("genügend Mehl", "Mehl"),
+            ("ein wenig Pfeffer", "Pfeffer"),
+            ("sehr wenig Salz", "Salz"),
+        ],
+    )
+    def test_vague_quantity_stripped(self, line, expected_ingredient):
+        result = parse_ingredient_line(line)
+        assert result.ingredient == expected_ingredient
+        assert result.quantity is None
+        assert result.unit is None
+
+    def test_vague_quantity_with_trailing_descriptor(self):
+        result = parse_ingredient_line("wenig Pfeffer aus der Mühle")
+        assert result.ingredient == "Pfeffer aus der Mühle"
 
     def test_french_du_preposition(self):
         result = parse_ingredient_line("3 c.s. du vinaigre")

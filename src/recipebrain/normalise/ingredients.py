@@ -91,6 +91,8 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
             "Hähnchenfilet",
             "Hähnchenbrust",
             "Pouletbrustfilet",
+            "Pouletfleisch",
+            "Pouletbrust-Charbonnade",
         ],
         tags=["poultry", "white-meat"],
     ),
@@ -102,7 +104,12 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Chicken thigh",
         "meat",
         "poultry",
-        aliases=["Hähnchenschenkel", "Pouletoberschenkel"],
+        aliases=[
+            "Hähnchenschenkel",
+            "Pouletoberschenkel",
+            "Pouletschenkel-Steaks",
+            "Pouletschenkel-Steak",
+        ],
         tags=["poultry", "dark-meat"],
     ),
     _ci(
@@ -135,7 +142,15 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Pork chop",
         "meat",
         "pork",
-        aliases=["Schweinskotelette", "Koteletten"],
+        aliases=[
+            "Schweinskotelette",
+            "Koteletten",
+            "Schweinshals-Steaks",
+            "Schweinehalssteak",
+            "Schweinssteak",
+            "Schweinskoteletts",
+            "Schweinsplätzli",
+        ],
         tags=["pork", "red-meat"],
     ),
     _ci(
@@ -146,7 +161,14 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Bacon",
         "meat",
         "pork",
-        aliases=["Bauchspeck", "Frühstücksspeck", "Räucherspeck"],
+        aliases=[
+            "Bauchspeck",
+            "Frühstücksspeck",
+            "Räucherspeck",
+            "Bratspeck",
+            "Bauernspeck",
+            "Speckwürfeli",
+        ],
         tags=["pork", "smoky"],
     ),
     _ci(
@@ -158,7 +180,14 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "meat",
         "sausage",
         unit="pcs",
-        aliases=["Kalbsbratwurst", "St. Galler Bratwurst"],
+        aliases=[
+            "Kalbsbratwurst",
+            "St. Galler Bratwurst",
+            "Bauernbratwurst",
+            "Bauernbratwürste",
+            "Schweinsbratwürste",
+            "Schweinsbratwurst",
+        ],
         tags=["pork", "sausage"],
     ),
     # -- Fish & Seafood --
@@ -170,7 +199,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Salmon fillet",
         "fish",
         "oily-fish",
-        aliases=["Lachs"],
+        aliases=["Lachs", "Lachstranchen", "Lachstranche", "Lachsfilets"],
         tags=["fish", "oily-fish"],
     ),
     _ci(
@@ -181,7 +210,13 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Shrimp",
         "fish",
         "shellfish",
-        aliases=["Garnelen", "Shrimps", "Riesencrevetten"],
+        aliases=[
+            "Garnelen",
+            "Shrimps",
+            "Riesencrevetten",
+            "Crevettenschwänze",
+            "rohe Crevettenschwänze",
+        ],
         tags=["shellfish", "seafood"],
     ),
     # -- Dairy --
@@ -231,7 +266,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Gruyère cheese",
         "dairy",
         "cheese-hard",
-        aliases=["Greyerzer", "Le Gruyère"],
+        aliases=["Greyerzer", "Le Gruyère", "Reibkäse"],
         tags=["cheese", "alpine"],
     ),
     _ci(
@@ -277,7 +312,13 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "dairy",
         "fermented",
         density=1.03,
-        aliases=["Jogurt", "Naturjoghurt"],
+        aliases=[
+            "Jogurt",
+            "Naturjoghurt",
+            "Joghurt nature",
+            "griechisches Joghurt nature",
+            "griechisches Joghurt",
+        ],
         tags=["dairy", "tangy"],
     ),
     _ci(
@@ -288,7 +329,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Mozzarella",
         "dairy",
         "cheese-fresh",
-        aliases=["Büffelmozzarella"],
+        aliases=["Büffelmozzarella", "Mozzarella di Bufala", "Mozzarella di Bufala Campana"],
         tags=["cheese", "mild"],
     ),
     _ci(
@@ -359,7 +400,14 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Potato",
         "vegetable",
         "tuber",
-        aliases=["Kartoffeln", "Erdapfel", "Erdäpfel"],
+        aliases=[
+            "Kartoffeln",
+            "Erdapfel",
+            "Erdäpfel",
+            "Baby-Kartoffeln",
+            "Raclette-Kartoffeln",
+            "Frühkartoffeln",
+        ],
         tags=["starchy", "root-veg"],
     ),
     _ci(
@@ -370,7 +418,14 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Tomato",
         "vegetable",
         "fruit-veg",
-        aliases=["Tomaten", "Cherrytomaten", "Cherry-Tomaten", "Rispentomaten"],
+        aliases=[
+            "Tomaten",
+            "Cherrytomaten",
+            "Cherry-Tomaten",
+            "Rispentomaten",
+            "Fleischtomate",
+            "Fleischtomaten",
+        ],
         tags=["tomato", "acidic"],
     ),
     _ci(
@@ -426,7 +481,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Spinach",
         "vegetable",
         "leaf",
-        aliases=["Blattspinat"],
+        aliases=["Blattspinat", "Jungspinat", "Babyspinat"],
         tags=["green", "iron-rich"],
     ),
     _ci(
@@ -461,7 +516,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "vegetable",
         "fruit-veg",
         unit="pcs",
-        aliases=["Salatgurke"],
+        aliases=["Salatgurke", "Snackgurken", "Snackgurke"],
         tags=["fresh", "mild"],
     ),
     _ci(
@@ -515,7 +570,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Pea",
         "vegetable",
         "legume",
-        aliases=["Erbsen", "Tiefkühlerbsen"],
+        aliases=["Erbsen", "Tiefkühlerbsen", "Erbsli"],
         tags=["legume", "sweet"],
     ),
     _ci(
@@ -599,6 +654,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "herb",
         "fresh",
         unit="Zweig",
+        aliases=["Thymianblättchen"],
         tags=["herb", "aromatic"],
     ),
     _ci(
@@ -680,7 +736,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Flour",
         "pantry",
         "grain",
-        aliases=["Weissmehl", "Weizenmehl", "Halbweissmehl"],
+        aliases=["Weissmehl", "Weizenmehl", "Halbweissmehl", "Dinkelmehl", "Mehlmischung"],
         tags=["starchy", "baking"],
     ),
     _ci(
@@ -754,7 +810,15 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Pasta",
         "pantry",
         "grain",
-        aliases=["Nudeln", "Spaghetti", "Penne", "Fusilli", "Tagliatelle"],
+        aliases=[
+            "Nudeln",
+            "Spaghetti",
+            "Penne",
+            "Fusilli",
+            "Tagliatelle",
+            "Lasagne-Blätter",
+            "Lasagne",
+        ],
         tags=["starchy", "grain"],
     ),
     _ci(
@@ -765,7 +829,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Bread",
         "bakery",
         "baked",
-        aliases=["Weissbrot", "Vollkornbrot", "Toastbrot"],
+        aliases=["Weissbrot", "Vollkornbrot", "Toastbrot", "Bauernbrot", "Ruchbrot"],
         tags=["starchy", "baking"],
     ),
     # -- Canned / Preserved --
@@ -876,7 +940,15 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Lamb",
         "meat",
         "lamb",
-        aliases=["Lammfleisch", "Lammkeule", "Lammrack", "Lammfilet", "Lamm-Rack"],
+        aliases=[
+            "Lammfleisch",
+            "Lammkeule",
+            "Lammrack",
+            "Lammfilet",
+            "Lamm-Rack",
+            "Lammnierstück",
+            "Lammnierstücke",
+        ],
         tags=["lamb", "red-meat"],
     ),
     _ci(
@@ -909,7 +981,18 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Beef steak",
         "meat",
         "beef",
-        aliases=["Entrecôte", "Rindsfilet", "Rindshuft", "Huft", "Rumpsteak", "Rindsentrecôte"],
+        aliases=[
+            "Entrecôte",
+            "Rindsfilet",
+            "Rindshuft",
+            "Huft",
+            "Rumpsteak",
+            "Rindsentrecôte",
+            "Rindsplätzli",
+            "T-Bone-Steak",
+            "T-Bone-Steaks",
+            "Rindshohrücken",
+        ],
         tags=["beef", "red-meat"],
     ),
     _ci(
@@ -920,7 +1003,15 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Ham",
         "meat",
         "pork",
-        aliases=["Rohschinken", "Kochschinken", "Schinkenwürfel", "Vorderschinken"],
+        aliases=[
+            "Rohschinken",
+            "Kochschinken",
+            "Schinkenwürfel",
+            "Vorderschinken",
+            "Hinterschinken",
+            "Schinkenwürfeli",
+            "Schinkenspeck",
+        ],
         tags=["pork", "cured"],
     ),
     _ci(
@@ -999,7 +1090,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Cod",
         "fish",
         "white-fish",
-        aliases=["Dorsch"],
+        aliases=["Dorsch", "Dorschfilet"],
         tags=["fish", "white-fish"],
     ),
     _ci(
@@ -1088,7 +1179,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Cream cheese",
         "dairy",
         "cheese-fresh",
-        aliases=["Philadelphia", "Rahmfrischkäse", "Streichkäse"],
+        aliases=["Philadelphia", "Rahmfrischkäse", "Streichkäse", "Doppelrahm-Frischkäse"],
         tags=["cheese", "creamy"],
     ),
     _ci(
@@ -1246,7 +1337,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Radish",
         "vegetable",
         "root",
-        aliases=["Rettich"],
+        aliases=["Rettich", "Radiesli"],
         tags=["peppery", "root-veg"],
     ),
     _ci(
@@ -1257,7 +1348,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Spring onion",
         "vegetable",
         "allium",
-        aliases=["Frühlingszwiebeln", "Lauchzwiebel", "Lauchzwiebeln"],
+        aliases=["Frühlingszwiebeln", "Lauchzwiebel", "Lauchzwiebeln", "Bundzwiebel"],
         tags=["allium", "fresh"],
     ),
     _ci(
@@ -1596,7 +1687,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "herb",
         "fresh",
         unit="Bund",
-        aliases=["Pfefferminze"],
+        aliases=["Pfefferminze", "Pfefferminzblätter", "Nanaminze"],
         tags=["herb", "fresh"],
     ),
     _ci(
@@ -1608,6 +1699,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "herb",
         "dried",
         unit="TL",
+        aliases=["getrockneter Oregano", "Oreganoblättchen"],
         tags=["herb", "mediterranean"],
     ),
     _ci(
@@ -1643,7 +1735,13 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="TL",
-        aliases=["Paprika edelsüss", "geräucherter Paprika"],
+        aliases=[
+            "Paprika edelsüss",
+            "geräucherter Paprika",
+            "Edelsüss-Paprika",
+            "Edelsüsspaprika",
+            "Pimentón",
+        ],
         tags=["spice", "sweet"],
     ),
     _ci(
@@ -1655,7 +1753,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="TL",
-        aliases=["Kümmel"],
+        aliases=["Kümmel", "Kreuzkümmelpulver", "Kumin", "Cumin gemahlen"],
         tags=["spice", "earthy"],
     ),
     _ci(
@@ -1667,7 +1765,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="TL",
-        aliases=["Zimtstange", "Zimtstangen"],
+        aliases=["Zimtstange", "Zimtstangen", "Zimtpulver", "Stangenzimt"],
         tags=["spice", "sweet"],
     ),
     _ci(
@@ -1703,7 +1801,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "blend",
         unit="TL",
-        aliases=["Curry"],
+        aliases=["Curry", "milder Curry", "Madras Curry", "Currypaste"],
         tags=["spice", "blend"],
     ),
     _ci(
@@ -1715,7 +1813,15 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="Stange",
-        aliases=["Vanilleschote", "Vanilleextrakt", "Vanillezucker", "Vanillinzucker"],
+        aliases=[
+            "Vanilleschote",
+            "Vanilleextrakt",
+            "Vanillezucker",
+            "Vanillinzucker",
+            "Vanillestängel",
+            "Vanillepaste",
+            "Vanillemark",
+        ],
         tags=["sweet", "aromatic"],
     ),
     _ci(
@@ -1739,6 +1845,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="TL",
+        aliases=["Kardamompulver", "Kardamomkapseln"],
         tags=["spice", "aromatic"],
     ),
     _ci(
@@ -1787,7 +1894,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "baking",
         unit="EL",
-        aliases=["Maisstärke", "Stärkemehl", "Kartoffelstärke"],
+        aliases=["Maisstärke", "Stärkemehl", "Kartoffelstärke", "Stärke"],
         tags=["thickener", "baking"],
     ),
     _ci(
@@ -1799,7 +1906,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "baking",
         unit="EL",
-        aliases=["Kakao", "Backkakao"],
+        aliases=["Kakao", "Backkakao", "Schokoladepulver"],
         tags=["chocolate", "baking"],
     ),
     _ci(
@@ -1810,7 +1917,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Dark chocolate",
         "pantry",
         "baking",
-        aliases=["dunkle Schokolade", "Zartbitterschokolade", "Kochschokolade"],
+        aliases=["dunkle Schokolade", "Zartbitterschokolade", "Kochschokolade", "Couverture"],
         tags=["chocolate", "bitter"],
     ),
     _ci(
@@ -1866,7 +1973,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "sweetener",
         unit="EL",
-        aliases=["Blütenhonig", "Akazienhonig"],
+        aliases=["Blütenhonig", "Akazienhonig", "flüssiger Honig", "Waldhonig"],
         tags=["sweet", "natural"],
     ),
     _ci(
@@ -1939,7 +2046,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "oil",
         unit="TL",
-        aliases=["geröstetes Sesamöl"],
+        aliases=["geröstetes Sesamöl", "dunkles Sesamöl"],
         tags=["asian", "nutty"],
     ),
     _ci(
@@ -2035,7 +2142,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "condiment",
         unit="EL",
-        aliases=["Basilikumpesto", "Pesto Genovese", "Pesto rosso"],
+        aliases=["Basilikumpesto", "Pesto Genovese", "Pesto rosso", "Pesto verde"],
         tags=["herb", "italian"],
     ),
     _ci(
@@ -2058,7 +2165,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Olives",
         "pantry",
         "preserved",
-        aliases=["schwarze Oliven", "Kalamata-Oliven", "grüne Oliven"],
+        aliases=["schwarze Oliven", "Kalamata-Oliven", "grüne Oliven", "Kalamata"],
         tags=["briny", "mediterranean"],
     ),
     _ci(
@@ -2093,7 +2200,13 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Almond",
         "pantry",
         "nut",
-        aliases=["Mandeln", "Mandelblättchen", "gemahlene Mandeln", "Mandelstifte"],
+        aliases=[
+            "Mandeln",
+            "Mandelblättchen",
+            "gemahlene Mandeln",
+            "Mandelstifte",
+            "geschälte Mandeln",
+        ],
         tags=["nut", "sweet"],
     ),
     _ci(
@@ -2104,7 +2217,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Walnut",
         "pantry",
         "nut",
-        aliases=["Baumnüsse", "Walnuss", "Walnüsse", "Nüsse"],
+        aliases=["Baumnüsse", "Walnuss", "Walnüsse", "Nüsse", "Baumnusskerne"],
         tags=["nut", "earthy"],
     ),
     _ci(
@@ -2137,7 +2250,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Cashew",
         "pantry",
         "nut",
-        aliases=["Cashewnüsse", "Cashew-Kerne", "Cashewkerne"],
+        aliases=["Cashewnüsse", "Cashew-Kerne", "Cashewkerne", "Cashew-Nüsse"],
         tags=["nut", "creamy"],
     ),
     _ci(
@@ -2149,7 +2262,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "seed",
         unit="EL",
-        aliases=["Sesam", "Sesamsamen"],
+        aliases=["Sesam", "Sesamsamen", "schwarzer Sesam"],
         tags=["seed", "nutty"],
     ),
     _ci(
@@ -2161,7 +2274,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "seed",
         unit="EL",
-        aliases=[],
+        aliases=["Sonnenblumensamen"],
         tags=["seed"],
     ),
     _ci(
@@ -2253,7 +2366,14 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Oats",
         "pantry",
         "grain",
-        aliases=["Hafer", "Rollhafer", "zarte Haferflocken"],
+        aliases=[
+            "Hafer",
+            "Rollhafer",
+            "zarte Haferflocken",
+            "Haferflocke",
+            "grobe Haferflocken",
+            "feine Haferflocken",
+        ],
         tags=["grain", "fibre"],
     ),
     _ci(
@@ -2386,7 +2506,14 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "wrapper",
         unit="pcs",
-        aliases=["Tortillas", "Weizentortillas"],
+        aliases=[
+            "Tortillas",
+            "Weizentortillas",
+            "Weizen-Tortillas",
+            "Soft Tortillas",
+            "Mais-Tortillas",
+            "Wraps",
+        ],
         tags=["wrapper", "mexican"],
     ),
     # -- Legumes & Pulses --
@@ -2431,7 +2558,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "White bean",
         "pantry",
         "legume",
-        aliases=["Weisse Bohnen", "Cannellini"],
+        aliases=["Weisse Bohnen", "Cannellini", "weisse Bohnen"],
         tags=["legume", "protein"],
     ),
     _ci(
@@ -2442,7 +2569,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Tofu",
         "pantry",
         "protein",
-        aliases=["Seidentofu", "Räuchertofu"],
+        aliases=["Seidentofu", "Räuchertofu", "Naturtofu", "geräucherter Tofu"],
         tags=["vegan", "protein"],
     ),
     # -- Beverages / Liquids --
@@ -2513,7 +2640,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Dried apricot",
         "pantry",
         "dried-fruit",
-        aliases=["getrocknete Aprikosen"],
+        aliases=["getrocknete Aprikosen", "Dörrfrüchte"],
         tags=["sweet", "dried"],
     ),
     # -- Miscellaneous --
@@ -2525,7 +2652,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Breadcrumbs",
         "pantry",
         "baking",
-        aliases=["Semmelbrösel", "Brösmeli"],
+        aliases=["Semmelbrösel", "Brösmeli", "Brösel"],
         tags=["coating", "baking"],
     ),
     _ci(
@@ -2715,7 +2842,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="pcs",
-        aliases=["Nelken", "Gewürznelken"],
+        aliases=["Nelken", "Gewürznelken", "Nelkenpulver", "Gewürznelke"],
         tags=["spice", "warm"],
     ),
     _ci(
@@ -2879,7 +3006,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Anchovy",
         "fish",
         "preserved",
-        aliases=["Sardellen", "Anchovis"],
+        aliases=["Sardellen", "Anchovis", "Sardellenfilet", "Sardellenfilets"],
         tags=["fish", "umami"],
     ),
     _ci(
@@ -3450,6 +3577,325 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         aliases=["Mungbohnensprossen"],
         tags=["asian", "crunchy"],
     ),
+    # -- Additional entries for issue #041 (ingredient matching) --
+    _ci(
+        400,
+        "water",
+        "Wasser",
+        "Eau",
+        "Water",
+        "pantry",
+        "liquid",
+        unit="dl",
+        density=1.0,
+        aliases=[
+            "Salzwasser",
+            "heisses Wasser",
+            "kaltes Wasser",
+            "siedendes Wasser",
+            "lauwarmes Wasser",
+        ],
+        tags=["liquid"],
+    ),
+    _ci(
+        403,
+        "raw-sugar",
+        "Rohzucker",
+        "Sucre brut",
+        "Raw sugar",
+        "pantry",
+        "sweetener",
+        aliases=["brauner Zucker", "Demerara", "gemahlener Rohzucker"],
+        tags=["sweet"],
+    ),
+    _ci(
+        417,
+        "gelatin",
+        "Gelatine",
+        "Gélatine",
+        "Gelatin",
+        "pantry",
+        "gelling",
+        unit="Blatt",
+        aliases=["Gelatineblätter"],
+        tags=["gelling"],
+    ),
+    _ci(
+        425,
+        "chilli-powder",
+        "Chilipulver",
+        "Poudre de chili",
+        "Chilli powder",
+        "spice",
+        "dried",
+        unit="TL",
+        aliases=["Chiliflocken", "Chili gemahlen"],
+        tags=["spice", "hot"],
+    ),
+    _ci(
+        426,
+        "cayenne",
+        "Cayennepfeffer",
+        "Poivre de Cayenne",
+        "Cayenne pepper",
+        "spice",
+        "dried",
+        unit="Prise",
+        aliases=["Cayenne"],
+        tags=["spice", "hot"],
+    ),
+    _ci(
+        441,
+        "worcestershire-sauce",
+        "Worcestershire-Sauce",
+        "Sauce Worcestershire",
+        "Worcestershire sauce",
+        "pantry",
+        "sauce",
+        unit="TL",
+        aliases=["Worcestersauce", "Worcester-Sauce"],
+        tags=["umami", "fermented"],
+    ),
+    _ci(
+        442,
+        "sambal-oelek",
+        "Sambal Oelek",
+        "Sambal oelek",
+        "Sambal oelek",
+        "pantry",
+        "sauce",
+        unit="TL",
+        aliases=["Sambal"],
+        tags=["spicy", "asian"],
+    ),
+    _ci(
+        459,
+        "coconut-flakes",
+        "Kokosflocken",
+        "Noix de coco râpée",
+        "Coconut flakes",
+        "nut",
+        "tropical",
+        aliases=["Kokosraspel", "Kokosnuss"],
+        tags=["coconut", "tropical"],
+    ),
+    _ci(
+        460,
+        "double-cream",
+        "Doppelrahm",
+        "Double crème",
+        "Double cream",
+        "dairy",
+        "cream",
+        unit="dl",
+        density=1.005,
+        aliases=[
+            "Saucen-Halbrahm",
+            "saurer Halbrahm",
+            "Halbrahm",
+            "Saucenhalbrahm",
+        ],
+        tags=["dairy", "cream"],
+    ),
+    _ci(
+        461,
+        "cottage-cheese",
+        "Hüttenkäse",
+        "Cottage cheese",
+        "Cottage cheese",
+        "dairy",
+        "cheese-fresh",
+        aliases=["Rahmquark", "körniger Frischkäse"],
+        tags=["cheese", "mild"],
+    ),
+    _ci(
+        466,
+        "egg-yolk",
+        "Eigelb",
+        "Jaune d'œuf",
+        "Egg yolk",
+        "dairy",
+        "egg",
+        unit="pcs",
+        aliases=["Eidotter"],
+        tags=["egg", "rich"],
+    ),
+    _ci(
+        467,
+        "egg-white",
+        "Eiweiss",
+        "Blanc d'œuf",
+        "Egg white",
+        "dairy",
+        "egg",
+        unit="pcs",
+        aliases=["Eiklar"],
+        tags=["egg", "foam"],
+    ),
+    _ci(
+        484,
+        "jam",
+        "Konfitüre",
+        "Confiture",
+        "Jam",
+        "pantry",
+        "preserved",
+        unit="EL",
+        aliases=[
+            "Aprikosenkonfitüre",
+            "Erdbeerconfitüre",
+            "Gelee",
+            "Quittengelee",
+        ],
+        tags=["sweet", "fruity"],
+    ),
+    _ci(
+        490,
+        "peanut",
+        "Erdnuss",
+        "Cacahuète",
+        "Peanut",
+        "nut",
+        "legume-nut",
+        aliases=["Erdnüsse", "gesalzene Erdnüsse", "Erdnusskerne"],
+        tags=["nut", "protein"],
+    ),
+    _ci(
+        491,
+        "pickle",
+        "Essiggurke",
+        "Cornichon",
+        "Pickle",
+        "pantry",
+        "preserved",
+        aliases=[
+            "Cornichons",
+            "Essiggurken",
+            "Gewürzgurke",
+            "Gewürzgurken",
+        ],
+        tags=["sour", "crunchy"],
+    ),
+    _ci(
+        492,
+        "dried-legumes",
+        "Hülsenfrüchte",
+        "Légumineuses",
+        "Dried legumes",
+        "pantry",
+        "legume",
+        aliases=["getrocknete Hülsenfrüchte"],
+        tags=["legume", "protein"],
+    ),
+    _ci(
+        493,
+        "mortadella",
+        "Mortadella",
+        "Mortadelle",
+        "Mortadella",
+        "meat",
+        "cured",
+        aliases=[],
+        tags=["cured", "pork"],
+    ),
+    _ci(
+        494,
+        "coriander-seeds",
+        "Koriandersamen",
+        "Graines de coriandre",
+        "Coriander seeds",
+        "spice",
+        "dried",
+        unit="TL",
+        aliases=[],
+        tags=["spice", "aromatic"],
+    ),
+    _ci(
+        495,
+        "herb-vinegar",
+        "Kräuteressig",
+        "Vinaigre aux herbes",
+        "Herb vinegar",
+        "pantry",
+        "acid",
+        unit="EL",
+        aliases=[],
+        tags=["acidic", "herb"],
+    ),
+    # ------------------------------------------------------------------
+    # Swiss-German meat cuts (issue #045)
+    # ------------------------------------------------------------------
+    _ci(
+        496,
+        "chicken-wing",
+        "Pouletflügeli",
+        "Aile de poulet",
+        "Chicken wing",
+        "meat",
+        "poultry",
+        aliases=["Pouletflügel", "Hühnerflügel", "Chicken Wings"],
+        tags=["poultry", "white-meat"],
+    ),
+    _ci(
+        497,
+        "pork-neck",
+        "Schweinshals",
+        "Cou de porc",
+        "Pork neck",
+        "meat",
+        "pork",
+        aliases=["Schweinshalssteak"],
+        tags=["pork", "red-meat", "fatty"],
+    ),
+    _ci(
+        498,
+        "spareribs",
+        "Spareribs",
+        "Travers de porc",
+        "Spare ribs",
+        "meat",
+        "pork",
+        aliases=[
+            "Schweinsbrustspitzen",
+            "Schweinsbrustspitz-Rippchen",
+            "Spare Ribs",
+            "Rippchen",
+        ],
+        tags=["pork", "red-meat", "fatty"],
+    ),
+    _ci(
+        499,
+        "veal-roast",
+        "Kalbsbraten",
+        "Rôti de veau",
+        "Veal roast",
+        "meat",
+        "veal",
+        aliases=["Kalbsschulter"],
+        tags=["veal", "white-meat", "lean"],
+    ),
+    _ci(
+        500,
+        "bundnerfleisch",
+        "Bündnerfleisch",
+        "Viande des Grisons",
+        "Dried beef",
+        "meat",
+        "cured",
+        aliases=["Bündner Fleisch", "Viande séchée"],
+        tags=["beef", "cured", "lean"],
+    ),
+    _ci(
+        501,
+        "char-fillet",
+        "Felchenfilet",
+        "Filet de féra",
+        "Char fillet",
+        "fish",
+        "freshwater",
+        aliases=["Felchen", "Felchenfilets"],
+        tags=["fish", "white-fish", "lean"],
+    ),
 ]
 
 # Public alias — documented name in the specification
@@ -3644,6 +4090,143 @@ _ADJECTIVES_DE: list[str] = [
     "braune",
     "brauner",
     "braunes",
+    # Liquid/consistency
+    "flüssiger",
+    "flüssige",
+    "flüssiges",
+    "flüssigem",
+    "flüssigen",
+    "cremiger",
+    "cremige",
+    "cremiges",
+    "stückiger",
+    "stückige",
+    # Ground/powdered
+    "gemahlener",
+    "gemahlene",
+    "gemahlenes",
+    "gemahlenem",
+    "gemahlenen",
+    # Coarse/fine grain
+    "grobkörniger",
+    "grobkörnige",
+    "grobkörniges",
+    "feinkörniger",
+    "feinkörnige",
+    # Mild/mild flavour
+    "milder",
+    "milde",
+    "mildes",
+    "mildem",
+    "scharfer",
+    "scharfe",
+    "scharfes",
+    # Rolled out / processed
+    "ausgewallter",
+    "ausgewallte",
+    "ausgewalltes",
+    # Leaf/texture descriptors
+    "glattblättrige",
+    "glattblättriger",
+    "krause",
+    "krauser",
+    # Origin/type adjectives
+    "griechisches",
+    "griechischer",
+    "griechische",
+    "italienischer",
+    "italienische",
+    "italienisches",
+    "französischer",
+    "französische",
+    "französisches",
+    "indischer",
+    "indische",
+    "indisches",
+    "thailändischer",
+    "thailändische",
+    "asiatischer",
+    "asiatische",
+    "asiatisches",
+    # Sour/sweet
+    "saurer",
+    "saure",
+    "saures",
+    "saurem",
+    "sauren",
+    "süsser",
+    "süsse",
+    "süsses",
+    "süssem",
+    "süssen",
+    # Smoked
+    "geräucherter",
+    "geräucherte",
+    "geräuchertes",
+    "geräuchertem",
+    # Glutenfrei
+    "glutenfreie",
+    "glutenfreier",
+    "glutenfreies",
+    # Instant/soluble
+    "sofort lösliches",
+    "sofort lösliche",
+    "sofort löslicher",
+    # Round (for dough)
+    "rund ausgewallter",
+    "rund ausgewallte",
+    # Vague quantity words (treated as adjectives when not stripped by parser)
+    "ein wenig",
+    "sehr wenig",
+    "wenig",
+    "etwas",
+    "genügend",
+    "reichlich",
+    "viel",
+    # Trailing qualifiers (Swiss-German "nature" = plain)
+    "nature",
+    "surchoix",
+    # Cooking state
+    "hart gekochte",
+    "hart gekochter",
+    "hart gekochtes",
+    "weich gekochte",
+    "weich gekochter",
+    # Light/dark descriptors
+    "helles",
+    "heller",
+    "helle",
+    "dunkles",
+    "dunkler",
+    "dunkle",
+    # Origin descriptor
+    "rezenter",
+    "rezente",
+    "rezentes",
+    # Negation prefix
+    "nicht kaltgepresstes",
+    "nicht kaltgepresste",
+    "kaltgepresstes",
+    "kaltgepresste",
+    # Trailing past participles (undeclined, after noun)
+    "geschält",
+    "geviertelt",
+    "halbiert",
+    "gewürfelt",
+    "geschnitten",
+    "geraffelt",
+    "aufgetaut",
+    "angetaut",
+    # Raw/uncooked
+    "rohe",
+    "roher",
+    "rohes",
+    "rohem",
+    "rohen",
+    # Sliced/cut forms (Swiss-German meat cuts)
+    "geschnetzeltes",
+    "geschnetzelte",
+    "geschnetzelter",
 ]
 
 # Sort by length descending so longer prefixes match first
@@ -3658,7 +4241,7 @@ _PLURAL_SUFFIXES: list[str] = ["eln", "ien", "en", "er", "es", "el", "n", "e", "
 
 
 def _strip_adjectives(normalised_text: str) -> str:
-    """Strip common German adjectives/qualifiers from the beginning of an ingredient name.
+    """Strip common German adjectives/qualifiers from the beginning and end of an ingredient name.
 
     Examples:
         >>> _strip_adjectives("mehlig kochende kartoffeln")
@@ -3667,8 +4250,11 @@ def _strip_adjectives(normalised_text: str) -> str:
         'petersilie'
         >>> _strip_adjectives("pouletbrust")
         'pouletbrust'
+        >>> _strip_adjectives("joghurt nature")
+        'joghurt'
     """
     text = normalised_text
+    # Strip leading adjectives
     changed = True
     while changed:
         changed = False
@@ -3681,7 +4267,34 @@ def _strip_adjectives(normalised_text: str) -> str:
                 text = text[len(adj) :].lstrip()
                 changed = True
                 break
+    # Strip trailing adjectives (e.g. "joghurt nature")
+    changed = True
+    while changed:
+        changed = False
+        for adj in _ADJECTIVES_NORMALISED:
+            if text.endswith(" " + adj):
+                text = text[: -(len(adj) + 1)].rstrip()
+                changed = True
+                break
+    # Strip trailing "zum + verb" purpose qualifiers (e.g. "ol zum braten" → "ol")
+    text = _ZUM_SUFFIX_RE.sub("", text).rstrip()
     return text
+
+
+# Regex to strip trailing purpose/descriptor qualifiers
+_ZUM_SUFFIX_RE = re.compile(
+    r"\s+(?:"
+    r"(?:zum|fur|furs)\s+\w+"  # "zum Braten", "für Salat"
+    r"|ohne\s+\w+"  # "ohne Haut"
+    r"|mit\s+(?:\w+\s+)*\w+"  # "mit dem Grün", "mit wenig Grün"
+    r"|vom\s+\w+"  # "vom Vortag"
+    r"|am\s+\w+"  # "am Stück"
+    r"|in\s+\w+"  # "in Tranchen", "in Würfeli"
+    r"|beim\s+(?:\w+\s+)*\w+"  # "beim Metzger vorbestellt"
+    r"|oder\s+\w+"  # "oder Speck" (alternative ingredient)
+    r")$",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -3993,6 +4606,16 @@ def get_canonical_ingredient_by_id(ingredient_id: int) -> CanonicalIngredient | 
 # Quantity / unit stripping
 # ---------------------------------------------------------------------------
 
+# Strips parenthetical brand/variety info like "(z.B. Butternut)" or "(Betty Bossi)"
+_PAREN_BRAND_RE = re.compile(
+    r"\s*\((?:z\.?\s*B\.?|z\.?\s*b\.?|wie|ca\.?|je\s+ca\.?)[\s\S]*?\)",
+    re.IGNORECASE,
+)
+
+# Strips ANY trailing parenthetical content — ingredient names never contain parens.
+# Handles cases like "(Bio)", "(MSC)", "(Bacon)" that _PAREN_BRAND_RE misses.
+_PAREN_ANY_RE = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
+
 # Matches leading quantity+unit patterns like "200g", "200 g", "1.5 kg",
 # "½ dl", "2½ EL", fractional quantities, and range patterns ("2-3").
 # Includes German units (EL, TL, Prise, etc.) and French units (c.s., c.c., pincée, etc.)
@@ -4005,6 +4628,7 @@ _QUANTITY_UNIT_RE = re.compile(
     r"|stück|stk|scheibe|scheiben|blatt|blätter"
     r"|zweig|zweige|zehe|zehen|dose|dosen"
     r"|becher|packung|pkg|tropfen|tasse|tassen"
+    r"|tranchen|päckli|packli|würfel"
     # French units
     r"|c\.s\.|c\.c\.|cs|cc|pincee|pincées?|gouttes?"
     r"|tranche|tranches|bouquet|sachet|sachets"
@@ -4032,6 +4656,28 @@ def _strip_quantity_unit(text: str) -> str:
     return result if result else text
 
 
+# Matches a bare leading count (number without unit) like "4 " or "12 "
+_BARE_COUNT_RE = re.compile(
+    r"^\s*\d+(?:[.,]\d+)?\s*(?:[-–/]\s*\d+(?:[.,]\d+)?\s*)?\s+",
+    re.UNICODE,
+)
+
+
+def _strip_bare_count(text: str) -> str:
+    """Strip a leading bare count (number without unit) from ingredient text.
+
+    Examples:
+        >>> _strip_bare_count('4 schweinshals-steaks')
+        'schweinshals-steaks'
+        >>> _strip_bare_count('16 pouletflugeli')
+        'pouletflugeli'
+        >>> _strip_bare_count('butter')
+        'butter'
+    """
+    result = _BARE_COUNT_RE.sub("", text).strip()
+    return result if result else text
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -4046,6 +4692,7 @@ def normalise_ingredient(raw_name: str) -> str | None:
     3. Depluralize (try removing common German plural suffixes)
     4. Strip adjectives + depluralize
     5. Strip leading quantity+unit prefix, then retry strategies 1-4
+    6. Strip bare leading count (no unit), then retry strategies 1-4
 
     Args:
         raw_name: Raw ingredient text, e.g. "Pouletbrust", "Zwiebeln",
@@ -4065,6 +4712,11 @@ def normalise_ingredient(raw_name: str) -> str | None:
         'butter'
         >>> normalise_ingredient("Xylophon")
     """
+    # Strip all parenthetical content (brand, variety, weight, quality labels)
+    raw_name = _PAREN_ANY_RE.sub("", raw_name).strip()
+    # Strip trailing comma and everything after (prep instructions)
+    if "," in raw_name:
+        raw_name = raw_name[: raw_name.index(",")].strip()
     normalised = _normalise(raw_name)
     if not normalised:
         return None
@@ -4080,6 +4732,16 @@ def normalise_ingredient(raw_name: str) -> str | None:
         stripped_normalised = _normalise(raw_stripped)
         if stripped_normalised and stripped_normalised != normalised:
             result = _match_normalised(stripped_normalised)
+            if result:
+                return result
+
+    # Strategy 6: strip bare leading count (number without unit), then retry.
+    raw_lower = raw_name.strip().lower()
+    bare_stripped = _strip_bare_count(raw_lower)
+    if bare_stripped != raw_lower:
+        bare_normalised = _normalise(bare_stripped)
+        if bare_normalised and bare_normalised != normalised:
+            result = _match_normalised(bare_normalised)
             if result:
                 return result
 
@@ -4157,6 +4819,19 @@ def _match_normalised(normalised: str) -> str | None:
         result = _INDEX.get(candidate)
         if result:
             return result
+
+    # Strategy 8: Hyphen-split — try parts after hyphens (compound words)
+    if "-" in normalised:
+        parts = normalised.split("-")
+        # Try the last part (e.g., "baby-kartoffeln" → "kartoffeln")
+        last_part = parts[-1]
+        result = _INDEX.get(last_part)
+        if result:
+            return result
+        for candidate in _depluralize(last_part):
+            result = _INDEX.get(candidate)
+            if result:
+                return result
 
     return None
 

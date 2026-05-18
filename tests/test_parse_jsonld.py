@@ -106,10 +106,34 @@ class TestParseRecipe:
         assert recipe.yield_amount == ""
         assert recipe.prep_time == ""
         assert recipe.cook_time == ""
+        assert recipe.total_time == ""
         assert recipe.image_urls == []
+        assert recipe.image_captions == []
         assert recipe.keywords == []
         assert recipe.category == ""
         assert recipe.cuisine == ""
+
+    def test_extracts_total_time(self):
+        data = {
+            "name": "Test",
+            "totalTime": "PT40M",
+        }
+        recipe = parse_recipe(data)
+        assert recipe.total_time == "PT40M"
+        assert recipe.prep_time == ""
+        assert recipe.cook_time == ""
+
+    def test_extracts_total_time_with_prep_and_cook(self):
+        data = {
+            "name": "Test",
+            "prepTime": "PT15M",
+            "cookTime": "PT25M",
+            "totalTime": "PT40M",
+        }
+        recipe = parse_recipe(data)
+        assert recipe.prep_time == "PT15M"
+        assert recipe.cook_time == "PT25M"
+        assert recipe.total_time == "PT40M"
 
     def test_extracts_recipe_category(self):
         data = {
@@ -194,3 +218,39 @@ class TestParseRecipe:
         data = {"name": "Test", "recipeYield": ["4 servings", "4"]}
         recipe = parse_recipe(data)
         assert recipe.yield_amount == "4 servings"
+
+    def test_image_captions_empty_for_string_url(self):
+        data = {"name": "Test", "image": "https://example.com/img.jpg"}
+        recipe = parse_recipe(data)
+        assert recipe.image_captions == [""]
+
+    def test_image_captions_from_image_object(self):
+        data = {
+            "name": "Test",
+            "image": {"url": "https://example.com/img.jpg", "caption": "A tasty dish"},
+        }
+        recipe = parse_recipe(data)
+        assert recipe.image_captions == ["A tasty dish"]
+
+    def test_image_captions_from_image_object_name_fallback(self):
+        data = {
+            "name": "Test",
+            "image": {"url": "https://example.com/img.jpg", "name": "Dish photo"},
+        }
+        recipe = parse_recipe(data)
+        assert recipe.image_captions == ["Dish photo"]
+
+    def test_image_captions_mixed_list(self):
+        data = {
+            "name": "Test",
+            "image": [
+                "https://example.com/a.jpg",
+                {"url": "https://example.com/b.jpg", "caption": "Close-up"},
+            ],
+        }
+        recipe = parse_recipe(data)
+        assert recipe.image_captions == ["", "Close-up"]
+
+    def test_image_captions_empty_when_no_images(self):
+        recipe = parse_recipe({"name": "Minimal Recipe"})
+        assert recipe.image_captions == []

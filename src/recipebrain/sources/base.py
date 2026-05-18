@@ -36,7 +36,9 @@ class RawRecipe:
     yield_amount: str = ""
     prep_time: str = ""
     cook_time: str = ""
+    total_time: str = ""
     image_urls: list[str] = field(default_factory=list)
+    image_captions: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
     source_url: str = ""
     language: str = "de"

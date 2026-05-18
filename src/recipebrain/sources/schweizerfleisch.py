@@ -230,6 +230,7 @@ def _parse_recipe_html(html_text: str, source_url: str, language: str) -> RawRec
         prep_time=prep_time,
         cook_time=total_time,
         image_urls=image_urls,
+        image_captions=[title] * len(image_urls),
         keywords=keywords,
         source_url=source_url,
         language=language,

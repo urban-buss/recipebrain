@@ -8,6 +8,8 @@ from recipebrain.sources.base import RawIngredientGroup, RawRecipe
 from recipebrain.transform import (
     _compute_content_hash,
     _extract_external_id,
+    _infer_course,
+    _infer_cuisine,
     _infer_difficulty,
     _normalise_course,
     _normalise_cuisine,
@@ -74,7 +76,6 @@ class TestBuildRecipeRow:
         assert "cooking_method" in row
         assert isinstance(row["dietary_flags"], list)
         assert isinstance(row["food_groups"], list)
-        assert isinstance(row["computed_tags"], list)
 
     def test_missing_optional_fields(self):
         raw = RawRecipe(title="Minimal")
@@ -95,17 +96,15 @@ class TestBuildRecipeRow:
         assert row["primary_protein"] is None
         assert row["taste_profile"] == "savoury"
         assert isinstance(row["dietary_flags"], list)
-        assert isinstance(row["computed_tags"], list)
 
-    def test_computed_tags_with_ingredients(self):
+    def test_computed_fields_with_ingredients(self):
         raw = _full_raw_recipe()
         ing_rows = build_recipe_ingredients_rows(
             recipe_id=42,
             ingredients_raw=raw.ingredients_raw,
         )
         row = build_recipe_row(raw, source_id=1, recipe_id=42, ingredient_rows=ing_rows)
-        # With actual ingredients resolved, computed tags should be populated
-        assert isinstance(row["computed_tags"], list)
+        # With actual ingredients resolved, computed fields should be populated
         assert isinstance(row["food_groups"], list)
         assert row["taste_profile"] in ("sweet", "savoury", "sweet-savoury")
         assert row["weight_class"] in ("light", "medium", "heavy")
@@ -123,6 +122,54 @@ class TestBuildRecipeRow:
         assert row["prep_minutes"] is None
         assert row["cook_minutes"] == 45
         assert row["total_minutes"] == 45
+
+    def test_total_time_only_no_prep_cook(self):
+        """When source provides only totalTime, use it as total_minutes."""
+        raw = RawRecipe(title="Test", total_time="PT40M")
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 40
+
+    def test_deduplicates_prep_cook_when_equal_to_total(self):
+        """When prep == cook == totalTime, source duplicated totalTime.
+
+        The transform should use totalTime as total_minutes only, not double it.
+        """
+        raw = RawRecipe(
+            title="Jägerschnitzel",
+            prep_time="PT25M",
+            cook_time="PT25M",
+            total_time="PT25M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 25
+
+    def test_distinct_prep_cook_preserved(self):
+        """When prep != cook, values are used as-is regardless of totalTime."""
+        raw = RawRecipe(
+            title="Test",
+            prep_time="PT15M",
+            cook_time="PT25M",
+            total_time="PT40M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 15
+        assert row["cook_minutes"] == 25
+        assert row["total_minutes"] == 40
+
+    def test_equal_prep_cook_without_total_not_deduped(self):
+        """When prep == cook but no totalTime is available, keep as-is.
+
+        Could be a legitimate case (e.g. 5 min prep + 5 min cook).
+        """
+        raw = RawRecipe(title="Test", prep_time="PT10M", cook_time="PT10M")
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 10
+        assert row["cook_minutes"] == 10
+        assert row["total_minutes"] == 20
 
 
 class TestBuildRecipeSteps:
@@ -144,6 +191,7 @@ class TestBuildRecipeImages:
         assert rows[0]["seq"] == 1
         assert rows[0]["url"] == "https://img.ch/a.jpg"
         assert rows[0]["local_path"] is None
+        assert rows[0]["caption"] is None
         assert rows[1]["seq"] == 2
 
     def test_empty_images(self):
@@ -167,6 +215,34 @@ class TestBuildRecipeImages:
         urls = ["https://img.ch/a.jpg"]
         rows = build_recipe_images_rows(10, urls, local_paths=None)
         assert rows[0]["local_path"] is None
+
+    def test_with_captions(self):
+        urls = ["https://img.ch/a.jpg", "https://img.ch/b.jpg"]
+        captions = ["Chicken dish", "Side view"]
+        rows = build_recipe_images_rows(10, urls, captions=captions)
+        assert rows[0]["caption"] == "Chicken dish"
+        assert rows[1]["caption"] == "Side view"
+
+    def test_captions_none_defaults_to_null(self):
+        urls = ["https://img.ch/a.jpg"]
+        rows = build_recipe_images_rows(10, urls, captions=None)
+        assert rows[0]["caption"] is None
+
+    def test_with_captions_and_local_paths(self):
+        urls = ["https://img.ch/a.jpg"]
+        paths = ["images/10_001_abc.jpg"]
+        captions = ["Recipe photo"]
+        rows = build_recipe_images_rows(10, urls, local_paths=paths, captions=captions)
+        assert rows[0]["local_path"] == "images/10_001_abc.jpg"
+        assert rows[0]["caption"] == "Recipe photo"
+
+    def test_partial_captions(self):
+        urls = ["https://img.ch/a.jpg", "https://img.ch/b.jpg", "https://img.ch/c.jpg"]
+        captions = ["Caption A"]
+        rows = build_recipe_images_rows(10, urls, captions=captions)
+        assert rows[0]["caption"] == "Caption A"
+        assert rows[1]["caption"] is None
+        assert rows[2]["caption"] is None
 
 
 class TestBuildRecipeIngredients:
@@ -391,9 +467,12 @@ class TestNormaliseCourse:
             ("Apéro", "starter"),
             ("Fingerfood", "starter"),
             ("Beilage", "side"),
-            ("Snack", "side"),
-            ("Znüni", "side"),
-            ("Zvieri", "side"),
+            ("Snack", "snack"),
+            ("Znüni", "snack"),
+            ("Zvieri", "snack"),
+            ("Brunch", "breakfast"),
+            ("Frühstück", "breakfast"),
+            ("Brunch & Frühstück", "breakfast"),
             ("Backen", "bake"),
             ("Kuchen", "bake"),
             ("Brot", "bake"),
@@ -406,6 +485,94 @@ class TestNormaliseCourse:
     )
     def test_normalise(self, raw, expected):
         assert _normalise_course(raw) == expected
+
+
+class TestInferCourse:
+    """Tests for course inference from category, keywords, and title."""
+
+    def test_explicit_category_takes_priority(self):
+        assert _infer_course("Hauptgericht", "Zitronentorte", []) == "main"
+
+    @pytest.mark.parametrize(
+        ("title", "expected"),
+        [
+            # Bake patterns
+            ("Saint-Honoré-Torte", "bake"),
+            ("Zitronentorte", "bake"),
+            ("Kaffee-Gugelhopf", "bake"),
+            ("Grossmutters Schokoladekuchen", "bake"),
+            ("Rhabarber-Streusel-Kuchen", "bake"),
+            ("Airfryer Getränkter Zitronencake", "bake"),
+            ("Cupcakes", "bake"),
+            ("Geburtstags-Muffin-Torte", "bake"),
+            ("Oliven-Zitronen-Focaccia", "bake"),
+            ("Speckzopf", "bake"),
+            ("Schinkengipfeli", "bake"),
+            ("No bake Banoffee Pie", "bake"),
+            ("Cinnamon Roll-Apple-Pie", "bake"),
+            ("Glutenfreie Aprikosen-Beeren-Torte", "bake"),
+            # Starter patterns (salads and soups)
+            ("Quinoasalat", "starter"),
+            ("Couscous-Salat mit Tofu", "starter"),
+            ("Smokey Caprese-Salat", "starter"),
+            ("Blumenkohl-Salat mit Tahina-Dressing", "starter"),
+            ("Grüne Spargel-Schaumsuppe", "starter"),
+            ("Käsesuppe", "starter"),
+            ("Udon-Nudel-Suppe", "starter"),
+            # Side patterns (sauces, dips)
+            ("Hot Cocktail Sauce", "side"),
+            ("Indonesische Schalottensauce", "side"),
+            ("Avocado-Dip", "side"),
+            ("Whiskymarinade", "side"),
+            ("Vanillesauce", "side"),
+            # Breakfast
+            ("Pancakes ohne Ei", "breakfast"),
+            ("Milchreis mit Zimtzucker", "breakfast"),
+            # Main (protein-centred dishes)
+            ("Entrecôtes mit Café-de-Paris-Butter", "main"),
+            ("Grilliertes Schweinssteak mit Tomaten-Relish", "main"),
+            ("Whisky-Lachs mit Knoblauchdip", "main"),
+            ("Poulet-Krapfen mit Curry", "main"),
+            ("Spargel-Quiche", "main"),
+            ("Lauch-Quiche mit Speck", "main"),
+            ("Schlangenbrot-Hotdog", "main"),
+            # No match
+            ("Grillierte Zucchini-Spiessli", None),
+            ("Grilliertes Sommergemüse", None),
+            ("Folienkartoffeln", None),
+        ],
+    )
+    def test_infer_from_title(self, title, expected):
+        assert _infer_course("", title, []) == expected
+
+    def test_keyword_course_map_fallback(self):
+        """Keywords that match _COURSE_MAP are used before title patterns."""
+        assert _infer_course("", "Something", ["Dessert"]) == "dessert"
+        assert _infer_course("", "Something", ["Beilage"]) == "side"
+
+    def test_keyword_brunch_fruehstueck(self):
+        assert _infer_course("", "Pancakes ohne Ei", ["Brunch & Frühstück"]) == "breakfast"
+
+    def test_ingredient_keyword_heuristic(self):
+        """Protein keywords (Fleisch, Fisch, Geflügel) infer main as last resort."""
+        assert _infer_course("", "Grillierte Zucchini-Spiessli", ["Gemüse", "Fleisch"]) == "main"
+        assert _infer_course("", "Fischerspiessli", ["Fisch"]) == "main"
+        assert _infer_course("", "Türkische Köfte vom Gasgrill", ["Geflügel"]) == "main"
+
+    def test_explicit_category_beats_title(self):
+        """Explicit category always wins over title inference."""
+        assert _infer_course("Dessert", "Quinoasalat", []) == "dessert"
+
+    def test_keyword_map_beats_title(self):
+        """Keyword map entries beat title patterns."""
+        assert _infer_course("", "Kuchen-Suppe", ["Hauptgericht"]) == "main"
+
+    def test_empty_inputs_returns_none(self):
+        assert _infer_course("", "", []) is None
+
+    def test_title_beats_ingredient_keyword(self):
+        """Title patterns have priority over ingredient keyword heuristic."""
+        assert _infer_course("", "Grossmutters Schokoladekuchen", ["Fleisch"]) == "bake"
 
 
 class TestNormaliseCuisine:
@@ -423,6 +590,94 @@ class TestNormaliseCuisine:
     )
     def test_normalise(self, raw, expected):
         assert _normalise_cuisine(raw) == expected
+
+
+class TestInferCuisine:
+    """Tests for cuisine inference from title and keywords."""
+
+    def test_explicit_value_takes_priority(self):
+        assert _infer_cuisine("Italian", "Bircher-Müesli", []) == "italian"
+
+    @pytest.mark.parametrize(
+        ("title", "expected"),
+        [
+            # Swiss
+            ("Rösti mit Spiegelei", "swiss"),
+            ("Käsefondue", "swiss"),
+            ("Raclette-Platte", "swiss"),
+            ("Bircher-Müesli", "swiss"),
+            ("Züri-Geschnetzeltes", "swiss"),
+            ("Älplermagronen", "swiss"),
+            # Italian
+            ("Spaghetti Carbonara", "italian"),
+            ("Risotto ai funghi", "italian"),
+            ("Pizza Margherita", "italian"),
+            ("Pasta al forno", "italian"),
+            ("Tiramisu", "italian"),
+            ("Lasagne", "italian"),
+            # Thai
+            ("Pad Thai mit Poulet", "thai"),
+            ("Thai-Suppe mit Kokos", "thai"),
+            # Japanese
+            ("Sushi-Bowl mit Lachs", "japanese"),
+            ("Ramen mit Schweinefleisch", "japanese"),
+            # Chinese
+            ("Dim Sum", "chinese"),
+            # Korean
+            ("Kimchi-Fried-Rice", "korean"),
+            ("Bibimbap", "korean"),
+            # Vietnamese
+            ("Pho Bo", "vietnamese"),
+            # Asian (generic)
+            ("Wok-Gemüse mit Tofu", "asian"),
+            ("Gemüsecurry mit Poulet", "asian"),
+            ("Linsencurry mit Blumenkohl", "asian"),
+            # Indian
+            ("Tandoori-Poulet", "indian"),
+            ("Chicken Tikka Masala", "indian"),
+            # Mexican
+            ("Tacos mit Rindfleisch", "mexican"),
+            ("Chicken Burrito Bowl", "mexican"),
+            ("Chili con Carne", "mexican"),
+            # French
+            ("Quiche Lorraine", "french"),
+            ("Crêpes Suzette", "french"),
+            ("Ratatouille", "french"),
+            # Greek
+            ("Tzatziki", "greek"),
+            ("Moussaka", "greek"),
+            # Middle Eastern
+            ("Falafel mit Hummus", "middle-eastern"),
+            ("Couscous-Salat mit Tofu", "middle-eastern"),
+            # American
+            ("Cheeseburger", "american"),
+            ("Mac and Cheese", "american"),
+            # No match
+            ("Gemüseauflauf", None),
+            ("Pouletbrust mit Reis", None),
+            ("Schokoladenkuchen", None),
+        ],
+    )
+    def test_infer_from_title(self, title, expected):
+        assert _infer_cuisine("", title, []) == expected
+
+    def test_infer_from_keywords_when_title_has_no_signal(self):
+        assert _infer_cuisine("", "Pouletgericht", ["asiatisch"]) == "asian"
+        assert _infer_cuisine("", "Gemüseteller", ["mediterran"]) == "mediterranean"
+
+    def test_title_takes_priority_over_keywords(self):
+        # Title says Italian, keyword says Asian — title wins
+        assert _infer_cuisine("", "Pasta mit Gemüse", ["asiatisch"]) == "italian"
+
+    def test_empty_inputs_returns_none(self):
+        assert _infer_cuisine("", "", []) is None
+
+    def test_rejects_category_dumps_in_raw(self):
+        assert _infer_cuisine("milchprodukte, käse", "Risotto", []) == "italian"
+
+    def test_currywurst_not_asian(self):
+        """Currywurst contains 'curry' but the negative lookahead prevents it."""
+        assert _infer_cuisine("", "Currywurst", []) is None
 
 
 class TestNormaliseDifficulty:
@@ -599,3 +854,108 @@ class TestExtractClassification:
         result = extract_classification(raw)
         assert result["course"] == "dessert"
         assert result["difficulty"] == "easy"
+
+
+# ---------------------------------------------------------------------------
+# Keyword → tag mapping
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTagRowsFromKeywords:
+    def test_basic_mapping(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords([(1, ["Gemüse", "Party"])])
+
+        assert len(tags) == 2
+        keys = {t["key"] for t in tags}
+        assert "gemüse" in keys
+        assert "party" in keys
+
+        # Facet assignment
+        tag_by_key = {t["key"]: t for t in tags}
+        assert tag_by_key["gemüse"]["facet"] == "ingredient"
+        assert tag_by_key["party"]["facet"] == "occasion"
+
+        # recipe_tags links
+        assert len(rt) == 2
+        assert all(r["recipe_id"] == 1 for r in rt)
+
+    def test_deduplication_across_recipes(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords(
+            [
+                (1, ["Gemüse", "Fleisch"]),
+                (2, ["Gemüse", "Party"]),
+            ]
+        )
+
+        # "Gemüse" should appear only once in tags
+        keys = [t["key"] for t in tags]
+        assert keys.count("gemüse") == 1
+
+        # But recipe_tags should have entries for both recipes
+        gemuse_tag_id = next(t["id"] for t in tags if t["key"] == "gemüse")
+        gemuse_links = [r for r in rt if r["tag_id"] == gemuse_tag_id]
+        assert len(gemuse_links) == 2
+        assert {r["recipe_id"] for r in gemuse_links} == {1, 2}
+
+    def test_existing_tags_not_recreated(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        existing = {"gemüse": 99}
+        tags, rt = build_tag_rows_from_keywords(
+            [(1, ["Gemüse", "Party"])],
+            existing_tags=existing,
+            next_tag_id=100,
+        )
+
+        # Only "Party" should be created as new
+        assert len(tags) == 1
+        assert tags[0]["key"] == "party"
+        assert tags[0]["id"] == 100
+
+        # recipe_tags should reference existing tag ID for gemüse
+        gemuse_link = next(r for r in rt if r["tag_id"] == 99)
+        assert gemuse_link["recipe_id"] == 1
+
+    def test_unknown_keyword_gets_free_facet(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords([(1, ["Spezialität"])])
+
+        assert len(tags) == 1
+        assert tags[0]["facet"] == "free"
+
+    def test_empty_keywords_produces_no_rows(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords([(1, []), (2, None)])  # type: ignore[arg-type]
+        assert tags == []
+        assert rt == []
+
+    def test_sequential_ids(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords(
+            [(1, ["Gemüse", "Fleisch", "Party"])],
+            next_tag_id=10,
+        )
+        ids = [t["id"] for t in tags]
+        assert ids == [10, 11, 12]
+
+    def test_audience_facet(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords([(1, ["Familien-Gerichte", "für unterwegs"])])
+        facets = {t["key"]: t["facet"] for t in tags}
+        assert facets["familien-gerichte"] == "audience"
+        assert facets["für-unterwegs"] == "audience"
+
+    def test_slugify_strips_special_chars(self):
+        from recipebrain.transform import _slugify_tag
+
+        assert _slugify_tag("Brunch & Frühstück") == "brunch-frühstück"
+        assert _slugify_tag("  Für Gäste  ") == "für-gäste"
+        assert _slugify_tag("Kochen & Backen mit Kindern") == "kochen-backen-mit-kindern"

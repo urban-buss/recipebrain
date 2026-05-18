@@ -23,6 +23,7 @@ from recipebrain.transform import (
     build_recipe_ingredients_rows,
     build_recipe_row,
     build_recipe_steps_rows,
+    build_tag_rows_from_keywords,
 )
 from recipebrain.writer import append_table, read_table, write_schema_version, write_table
 
@@ -82,6 +83,25 @@ def _next_recipe_id(output_dir: Path) -> int:
         return int(table.column("id").to_pylist()[-1]) + 1
     except Exception:
         return 1
+
+
+def _get_existing_tags(output_dir: Path) -> tuple[dict[str, int], int]:
+    """Load existing tag keys with IDs and determine the next tag ID.
+
+    Returns:
+        Tuple of (existing_tags dict key→id, next_tag_id).
+    """
+    try:
+        table = read_table("tags", output_dir)
+        if table.num_rows == 0:
+            return {}, 1
+        keys = table.column("key").to_pylist()
+        ids = table.column("id").to_pylist()
+        tag_dict = dict(zip(keys, ids, strict=False))
+        next_id = max(ids) + 1
+        return tag_dict, next_id
+    except Exception:
+        return {}, 1
 
 
 # Static source metadata. The "language" field represents the primary/default
@@ -357,6 +377,9 @@ def _flush_rows(
     ingredients_rows: list[dict],
     output_dir: Path,
     adapter_key: str,
+    *,
+    tag_rows: list[dict] | None = None,
+    recipe_tag_rows: list[dict] | None = None,
 ) -> None:
     """Write accumulated rows to Parquet files and clear the lists."""
     if recipe_rows:
@@ -368,6 +391,10 @@ def _flush_rows(
         append_table("recipe_images", images_rows, output_dir)
     if ingredients_rows:
         append_table("recipe_ingredients", ingredients_rows, output_dir)
+    if tag_rows:
+        append_table("tags", tag_rows, output_dir)
+    if recipe_tag_rows:
+        append_table("recipe_tags", recipe_tag_rows, output_dir)
 
     recipe_rows.clear()
     steps_rows.clear()
@@ -441,6 +468,7 @@ def _run_source(
     source_id = _get_source_id(adapter)
     existing_urls = _get_existing_urls(output_dir)
     next_id = _next_recipe_id(output_dir)
+    existing_tags, next_tag_id = _get_existing_tags(output_dir)
 
     logger.info("ETL: discovering recipes from %s", adapter.key)
 
@@ -527,13 +555,29 @@ def _run_source(
                     logger.warning("ETL: image download failed for recipe %d: %s", recipe_id, exc)
 
             images_rows.extend(
-                build_recipe_images_rows(recipe_id, raw.image_urls, local_paths=local_paths)
+                build_recipe_images_rows(
+                    recipe_id,
+                    raw.image_urls,
+                    local_paths=local_paths,
+                    captions=raw.image_captions or None,
+                )
             )
             ingredients_rows.extend(recipe_ingredient_rows)
             result.fetched += 1
 
             # Flush batch to disk periodically
             if effective_batch and len(recipe_rows) >= effective_batch:
+                # Build tags from this batch's keywords
+                kw_pairs = [(r["id"], r.get("original_keywords") or []) for r in recipe_rows]
+                batch_tags, batch_rt = build_tag_rows_from_keywords(
+                    kw_pairs, existing_tags, next_tag_id
+                )
+                # Track state across batches
+                for t in batch_tags:
+                    existing_tags[t["key"]] = t["id"]
+                if batch_tags:
+                    next_tag_id = batch_tags[-1]["id"] + 1
+
                 _flush_rows(
                     recipe_rows,
                     steps_rows,
@@ -541,11 +585,21 @@ def _run_source(
                     ingredients_rows,
                     output_dir,
                     adapter.key,
+                    tag_rows=batch_tags,
+                    recipe_tag_rows=batch_rt,
                 )
     except KeyboardInterrupt:
         interrupted = True
         logger.warning("ETL: interrupted — flushing %d buffered recipes to disk", len(recipe_rows))
     finally:
+        # Build tags from remaining rows
+        kw_pairs = [(r["id"], r.get("original_keywords") or []) for r in recipe_rows]
+        remaining_tags, remaining_rt = build_tag_rows_from_keywords(
+            kw_pairs, existing_tags, next_tag_id
+        )
+        for t in remaining_tags:
+            existing_tags[t["key"]] = t["id"]
+
         # Always write remaining rows, even on Ctrl+C
         _flush_rows(
             recipe_rows,
@@ -554,6 +608,8 @@ def _run_source(
             ingredients_rows,
             output_dir,
             adapter.key,
+            tag_rows=remaining_tags,
+            recipe_tag_rows=remaining_rt,
         )
 
     # Soft-delete recipes whose URLs are no longer discovered

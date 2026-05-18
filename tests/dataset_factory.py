@@ -65,7 +65,6 @@ def make_recipe(**overrides: object) -> dict:
         "cooking_method": None,
         "dietary_flags": [],
         "food_groups": [],
-        "computed_tags": [],
     }
     defaults.update(overrides)
     return defaults

@@ -584,8 +584,8 @@ class TestIngredientGroups:
 
         assert groups == []
 
-    def test_fetch_populates_ingredient_groups_from_jsonld_recipe(self):
-        """JSON-LD recipe with ingredients should NOT override with HTML groups."""
+    def test_fetch_no_groups_when_html_has_flat_ingredients(self):
+        """JSON-LD recipe with flat HTML ingredients should not produce groups."""
         html = FIXTURES.joinpath("bettybossi_recipe.html").read_text(encoding="utf-8")
 
         adapter, mock_client = _adapter_with_mock_client()
@@ -598,10 +598,34 @@ class TestIngredientGroups:
             "https://www.bettybossi.ch/de/rezepte/rezept/kartoffelgratin-10002010/"
         )
 
-        # When JSON-LD provides ingredients_raw, ingredient_groups is not set from HTML
+        # HTML has no h3/h4 group headings → no groups extracted
         assert recipe.ingredient_groups == []
         # ingredients_raw from JSON-LD is preserved
         assert len(recipe.ingredients_raw) == 8
+
+    def test_fetch_extracts_groups_from_html_when_jsonld_present(self):
+        """JSON-LD recipe with grouped HTML ingredients should extract groups."""
+        html = FIXTURES.joinpath("bettybossi_recipe_jsonld_with_groups.html").read_text(
+            encoding="utf-8"
+        )
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch(
+            "https://www.bettybossi.ch/de/rezepte/rezept/crepes-mit-fuellungen-10003010/"
+        )
+
+        # HTML ingredient groups with labels should be extracted even with JSON-LD
+        assert len(recipe.ingredient_groups) == 3
+        assert recipe.ingredient_groups[0].label == "Für den Teig"
+        assert recipe.ingredient_groups[1].label == "Für die Quarkfüllung"
+        assert recipe.ingredient_groups[2].label == "Für die Fruchtfüllung"
+        # ingredients_raw from JSON-LD is also preserved
+        assert len(recipe.ingredients_raw) == 9
 
     def test_fetch_grouped_html_fallback(self):
         """HTML fallback should extract ingredient groups."""
@@ -635,7 +659,7 @@ class TestGalleryImageExtraction:
         images = _extract_gallery_images(tree)
 
         assert len(images) == 3
-        assert all("media.bettybossi.ch" in url for url in images)
+        assert all("media.bettybossi.ch" in url for url, _alt in images)
 
     def test_extract_gallery_images_empty_when_no_gallery(self):
         from selectolax.parser import HTMLParser
@@ -665,7 +689,7 @@ class TestGalleryImageExtraction:
         tree = HTMLParser(html)
         images = _extract_gallery_images(tree)
         assert len(images) == 1
-        assert "media.bettybossi.ch" in images[0]
+        assert "media.bettybossi.ch" in images[0][0]
 
     def test_extract_gallery_images_uses_srcset(self):
         from selectolax.parser import HTMLParser
@@ -676,7 +700,7 @@ class TestGalleryImageExtraction:
         tree = HTMLParser(html)
         images = _extract_gallery_images(tree)
         assert len(images) == 1
-        assert images[0] == "https://media.bettybossi.ch/img/a.jpg"
+        assert images[0][0] == "https://media.bettybossi.ch/img/a.jpg"
 
     def test_extract_gallery_images_uses_src_fallback(self):
         from selectolax.parser import HTMLParser
@@ -687,6 +711,51 @@ class TestGalleryImageExtraction:
         tree = HTMLParser(html)
         images = _extract_gallery_images(tree)
         assert len(images) == 1
+
+    def test_extract_gallery_images_skips_picture_source_webp(self):
+        """picture source elements (WEBP format alternatives) should not be extracted."""
+        from selectolax.parser import HTMLParser
+
+        html = """<picture>
+            <source type="image/webp" srcset="https://media.bettybossi.ch/image/123/-FWEBP-Ro:5 1x">
+            <source type="image/jpeg" srcset="https://media.bettybossi.ch/image/123/-FJPG 1x">
+            <img src="https://media.bettybossi.ch/image/123/-FJPG">
+        </picture>"""
+        tree = HTMLParser(html)
+        images = _extract_gallery_images(tree)
+        # Should only get the img fallback (JPG), not the source elements
+        assert len(images) == 1
+        assert "-FJPG" in images[0][0]
+        assert "-FWEBP-" not in images[0][0]
+
+    def test_extract_gallery_images_picture_img_captured(self):
+        """picture img fallback should be captured for standalone picture elements."""
+        from selectolax.parser import HTMLParser
+
+        html = """<picture>
+            <source type="image/webp" srcset="https://media.bettybossi.ch/image/456/-FWEBP-Ro:5 1x">
+            <img src="https://media.bettybossi.ch/image/456/-FJPG">
+        </picture>"""
+        tree = HTMLParser(html)
+        images = _extract_gallery_images(tree)
+        assert len(images) == 1
+        assert images[0][0] == "https://media.bettybossi.ch/image/456/-FJPG"
+
+    def test_extract_gallery_images_returns_alt_text(self):
+        """Gallery image extraction should return alt text alongside URLs."""
+        from selectolax.parser import HTMLParser
+
+        html = """<div class="recipe-gallery">
+            <img data-src="https://media.bettybossi.ch/img/a.jpg" alt="Kartoffelgratin">
+            <img data-src="https://media.bettybossi.ch/img/b.jpg" alt="">
+            <img data-src="https://media.bettybossi.ch/img/c.jpg">
+        </div>"""
+        tree = HTMLParser(html)
+        images = _extract_gallery_images(tree)
+        assert len(images) == 3
+        assert images[0] == ("https://media.bettybossi.ch/img/a.jpg", "Kartoffelgratin")
+        assert images[1] == ("https://media.bettybossi.ch/img/b.jpg", "")
+        assert images[2] == ("https://media.bettybossi.ch/img/c.jpg", "")
 
     def test_fetch_supplements_gallery_images(self):
         """JSON-LD recipe fetch should include gallery images from HTML."""
@@ -708,6 +777,24 @@ class TestGalleryImageExtraction:
             "https://media.bettybossi.ch/image/992382728798/"
             "image_4vvdg674vt67lefbcknq3skk26/-FWEBP-Ro:5,w:1125,h:844,n:default"
         )
+
+    def test_fetch_populates_image_captions(self):
+        """Fetched recipes should have non-null captions for all images."""
+        html = FIXTURES.joinpath("bettybossi_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch(
+            "https://www.bettybossi.ch/de/rezepte/rezept/kartoffelgratin-10002010/"
+        )
+
+        # Captions should match image count and never be empty
+        assert len(recipe.image_captions) == len(recipe.image_urls)
+        assert all(cap for cap in recipe.image_captions)
 
     def test_first_srcset_url_normal(self):
         assert (

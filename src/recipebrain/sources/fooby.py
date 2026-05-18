@@ -97,6 +97,13 @@ class FoobyAdapter(SourceAdapter):
         if not raw.cuisine:
             raw.cuisine = _extract_cuisine_from_tags(tree)
 
+        # Ensure image captions are populated; use title as fallback
+        while len(raw.image_captions) < len(raw.image_urls):
+            raw.image_captions.append(raw.title)
+        for i, cap in enumerate(raw.image_captions):
+            if not cap:
+                raw.image_captions[i] = raw.title
+
         return raw
 
     def close(self) -> None:

@@ -113,7 +113,6 @@ class TestCliLog:
             "cooking_method": [None],
             "dietary_flags": [[]],
             "food_groups": [[]],
-            "computed_tags": [[]],
         }
         table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
         pq.write_table(table, tmp_path / "recipes.parquet")
@@ -171,7 +170,6 @@ class TestCliLog:
             "cooking_method": [None],
             "dietary_flags": [[]],
             "food_groups": [[]],
-            "computed_tags": [[]],
         }
         table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
         pq.write_table(table, tmp_path / "recipes.parquet")
@@ -230,7 +228,6 @@ class TestCliLog:
             "cooking_method": [None],
             "dietary_flags": [[]],
             "food_groups": [[]],
-            "computed_tags": [[]],
         }
         table = pa.table(recipes_data, schema=SCHEMAS["recipes"])
         pq.write_table(table, tmp_path / "recipes.parquet")
