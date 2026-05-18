@@ -45,7 +45,12 @@ class ScrapingConfig:
 @dataclass(frozen=True)
 class SourceConfig:
     enabled: bool = True
-    language: str = "de"
+    languages: list[str] = field(default_factory=lambda: ["de"])
+
+    @property
+    def language(self) -> str:
+        """Primary language (first in the list). Backward-compat accessor."""
+        return self.languages[0] if self.languages else "de"
 
 
 @dataclass(frozen=True)
@@ -67,6 +72,15 @@ class CellarbrainConfig:
 
 
 @dataclass(frozen=True)
+class ImagesConfig:
+    enabled: bool = True
+    max_width: int = 1200
+    quality: int = 80
+    format: str = "jpeg"
+    min_dimension: int = 10
+
+
+@dataclass(frozen=True)
 class McpConfig:
     transport: str = "stdio"
     host: str = "localhost"
@@ -81,6 +95,7 @@ class Settings:
     promotions: PromotionsConfig = field(default_factory=PromotionsConfig)
     pantry: PantryConfig = field(default_factory=PantryConfig)
     cellarbrain: CellarbrainConfig = field(default_factory=CellarbrainConfig)
+    images: ImagesConfig = field(default_factory=ImagesConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
 
     @classmethod
@@ -121,7 +136,9 @@ class Settings:
             kwargs["scraping"] = ScrapingConfig(**data["scraping"])
 
         if "sources" in data:
-            kwargs["sources"] = {name: SourceConfig(**cfg) for name, cfg in data["sources"].items()}
+            kwargs["sources"] = {
+                name: _parse_source_config(cfg) for name, cfg in data["sources"].items()
+            }
 
         if "promotions" in data:
             kwargs["promotions"] = PromotionsConfig(**data["promotions"])
@@ -132,10 +149,39 @@ class Settings:
         if "cellarbrain" in data:
             kwargs["cellarbrain"] = CellarbrainConfig(**data["cellarbrain"])
 
+        if "images" in data:
+            kwargs["images"] = ImagesConfig(**data["images"])
+
         if "mcp" in data:
             kwargs["mcp"] = McpConfig(**data["mcp"])
 
         return cls(**kwargs)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Source config parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_source_config(raw: dict) -> SourceConfig:
+    """Parse a source config dict, handling both legacy and new formats.
+
+    Supports:
+        - ``languages = ["de", "fr"]`` (new list format)
+        - ``language = "de"`` (legacy single-string format, converted to list)
+
+    If both keys are present, ``languages`` takes precedence.
+    """
+    enabled = raw.get("enabled", True)
+
+    if "languages" in raw:
+        languages = raw["languages"]
+    elif "language" in raw:
+        languages = [raw["language"]]
+    else:
+        languages = ["de"]
+
+    return SourceConfig(enabled=enabled, languages=languages)
 
 
 # ---------------------------------------------------------------------------

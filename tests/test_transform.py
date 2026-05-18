@@ -380,12 +380,26 @@ class TestNormaliseCourse:
         [
             ("Hauptgericht", "main"),
             ("hauptgericht", "main"),
+            ("Hauptspeise", "main"),
+            ("Hauptgerichte", "main"),
+            ("plat principal", "main"),
             ("Main Course", "main"),
             ("Dessert", "dessert"),
             ("Vorspeise", "starter"),
+            ("Suppe", "starter"),
+            ("Salat", "starter"),
+            ("Apéro", "starter"),
+            ("Fingerfood", "starter"),
             ("Beilage", "side"),
+            ("Snack", "side"),
+            ("Znüni", "side"),
+            ("Zvieri", "side"),
             ("Backen", "bake"),
+            ("Kuchen", "bake"),
+            ("Brot", "bake"),
             ("Getränk", "drink"),
+            ("Smoothie", "drink"),
+            ("Cocktail", "drink"),
             ("", None),
             ("Unknown Category", None),
         ],
@@ -403,6 +417,8 @@ class TestNormaliseCuisine:
             ("ASIAN", "asian"),
             ("  French  ", "french"),
             ("", None),
+            ("milchprodukte, käse, eier", None),
+            ("familien-gerichte, geflügel, gemüse", None),
         ],
     )
     def test_normalise(self, raw, expected):
@@ -490,6 +506,10 @@ class TestExtractClassification:
     def test_keyword_fallback_for_course(self):
         result = extract_classification({"keywords": ["Dessert", "süss"]})
         assert result["course"] == "dessert"
+
+    def test_keyword_fallback_for_course_new_terms(self):
+        result = extract_classification({"keywords": ["familien-gerichte", "suppe"]})
+        assert result["course"] == "starter"
 
     def test_explicit_category_beats_keyword(self):
         result = extract_classification(

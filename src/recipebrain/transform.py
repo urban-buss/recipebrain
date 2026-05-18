@@ -36,27 +36,60 @@ from recipebrain.sources.base import RawIngredientGroup, RawRecipe
 # ---------------------------------------------------------------------------
 
 _COURSE_MAP: dict[str, str] = {
+    # Main courses
     "hauptgericht": "main",
+    "hauptgerichte": "main",
+    "hauptspeise": "main",
     "main course": "main",
     "main dish": "main",
     "main": "main",
+    "plat principal": "main",
+    "brunch": "main",
+    # Starters
     "vorspeise": "starter",
+    "vorspeisen": "starter",
     "starter": "starter",
     "appetizer": "starter",
     "entrée": "starter",
+    "suppe": "starter",
+    "suppen": "starter",
+    "soupe": "starter",
+    "salat": "starter",
+    "salate": "starter",
+    "salade": "starter",
+    "apéro": "starter",
+    "apéritif": "starter",
+    "fingerfood": "starter",
+    # Desserts
     "dessert": "dessert",
+    "desserts": "dessert",
     "nachspeise": "dessert",
     "süsses": "dessert",
+    # Sides
     "beilage": "side",
+    "beilagen": "side",
     "side dish": "side",
     "side": "side",
+    "snack": "side",
+    "snacks": "side",
+    "znüni": "side",
+    "zvieri": "side",
+    # Baking
     "bake": "bake",
     "backen": "bake",
     "gebäck": "bake",
+    "kuchen": "bake",
+    "torten": "bake",
+    "brot": "bake",
+    "pâtisserie": "bake",
+    # Drinks
     "getränk": "drink",
+    "getränke": "drink",
     "drink": "drink",
+    "drinks": "drink",
     "beverage": "drink",
     "smoothie": "drink",
+    "cocktail": "drink",
 }
 
 _DIFFICULTY_MAP: dict[str, str] = {
@@ -91,7 +124,10 @@ def _normalise_course(raw: str) -> str | None:
 
 
 def _normalise_cuisine(raw: str) -> str | None:
-    """Normalise a cuisine string to lowercase.
+    """Normalise a cuisine string to lowercase, rejecting category tag dumps.
+
+    Returns None for empty strings or values that look like concatenated
+    category tags (contain commas) rather than a single cuisine identifier.
 
     Examples:
         >>> _normalise_cuisine("Swiss")
@@ -99,10 +135,15 @@ def _normalise_cuisine(raw: str) -> str | None:
         >>> _normalise_cuisine("Italian")
         'italian'
         >>> _normalise_cuisine("")
+        >>> _normalise_cuisine("milchprodukte, käse, eier")
     """
     if not raw:
         return None
-    return raw.strip().lower()
+    stripped = raw.strip().lower()
+    # Reject multi-value category dumps (real cuisine is a single term)
+    if "," in stripped:
+        return None
+    return stripped
 
 
 def _normalise_difficulty(raw: str) -> str | None:

@@ -301,6 +301,18 @@ class TestComputeDietaryFlags:
         assert "vegan" in flags
         assert "dairy-free" in flags
 
+    def test_unresolved_ingredients_returns_empty(self):
+        """When ingredients exist but none resolved, don't falsely claim vegan."""
+        rows = [_ingredient_row(ingredient_id=None)]
+        flags = compute_dietary_flags(rows)
+        assert flags == []
+
+    def test_unresolved_ingredients_with_quick(self):
+        """Unresolved ingredients still allow the quick flag."""
+        rows = [_ingredient_row(ingredient_id=None)]
+        flags = compute_dietary_flags(rows, total_minutes=20)
+        assert flags == ["quick"]
+
 
 # ---------------------------------------------------------------------------
 # compute_food_groups

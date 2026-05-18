@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "recipebrain"
-version = "0.0.9"
+version = "0.0.10"
 description = "Personal Swiss recipe knowledge base with promotion-aware meal planning, exposed via MCP. Companion to cellarbrain."
 readme = "README.md"
 license = "MIT"
@@ -24,11 +24,12 @@ dependencies = [
     "selectolax >= 0.3",
     "extruct >= 0.16",
     "mcp >= 1.0",
+    "Pillow >= 10",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest >= 8", "pytest-cov", "ruff >= 0.5", "mypy >= 1.10"]
-ocr = ["pytesseract", "Pillow"]
+ocr = ["pytesseract"]
 llm = ["openai >= 1.30"]
 
 [project.scripts]

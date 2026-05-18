@@ -24,23 +24,23 @@ timeout_seconds = 30
 # Enable/disable individual recipe sources. Each key maps to a SourceAdapter.
 [sources.bettybossi]
 enabled = true
-language = "de"
+languages = ["de"]
 
 [sources.fooby]
 enabled = true
-language = "de"
+languages = ["de"]
 
 [sources.migusto]
 enabled = true
-language = "de"
+languages = ["de"]
 
 [sources.swissmilk]
 enabled = false
-language = "de"
+languages = ["de"]
 
 [sources.schweizerfleisch]
 enabled = false
-language = "de"
+languages = ["de"]
 
 # ── Promotions ─────────────────────────────────────────────────────────────────
 # Promotion data sources (weekly retailer specials).
@@ -61,6 +61,15 @@ expiry_warning_days = 3
 [cellarbrain]
 enabled = false
 # mcp_endpoint = "stdio"  # or "http://localhost:8001" if using SSE
+
+# ── Images ─────────────────────────────────────────────────────────────────────
+# Image download and compression settings.
+[images]
+enabled = true
+max_width = 1200              # pixels; longest edge — images wider than this are resized
+quality = 80                  # JPEG/WebP quality 1-100
+format = "jpeg"               # "jpeg" | "webp"
+min_dimension = 10            # skip images smaller than this (tracking pixels)
 
 # ── MCP ────────────────────────────────────────────────────────────────────────
 # MCP server settings.

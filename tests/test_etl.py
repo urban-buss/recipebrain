@@ -20,6 +20,7 @@ from recipebrain.etl import (
     _run_source,
     _seed_lookup_tables,
     _validate_recipe_content,
+    _warn_on_suspicious_ingredients,
     run_etl,
 )
 from recipebrain.settings import PathsConfig, Settings, SourceConfig
@@ -142,6 +143,55 @@ class TestRunSource:
         recipes = read_table("recipes", tmp_path)
         ids = recipes.column("id").to_pylist()
         assert 6 in ids
+
+    def test_language_safety_net_skips_wrong_language(self, tmp_path):
+        """ETL skips recipes whose language is not in allowed_languages."""
+        recipes = {
+            "https://example.com/de/r1": RawRecipe(
+                title="German",
+                ingredients_raw=["100 g Mehl"],
+                steps_raw=["Mischen."],
+                source_url="https://example.com/de/r1",
+                language="de",
+            ),
+            "https://example.com/fr/r2": RawRecipe(
+                title="French",
+                ingredients_raw=["100 g farine"],
+                steps_raw=["Mélanger."],
+                source_url="https://example.com/fr/r2",
+                language="fr",
+            ),
+        }
+        adapter = FakeAdapter(
+            urls=list(recipes.keys()),
+            recipes=recipes,
+        )
+
+        result = _run_source(adapter, tmp_path, allowed_languages=["de"])
+
+        assert result.fetched == 1
+        assert result.skipped == 1
+
+        table = read_table("recipes", tmp_path)
+        assert table.num_rows == 1
+        assert table.column("title").to_pylist() == ["German"]
+
+    def test_language_safety_net_allows_all_when_none(self, tmp_path):
+        """When allowed_languages is None, all recipes are ingested."""
+        recipes = {
+            "https://example.com/fr/r1": RawRecipe(
+                title="French",
+                ingredients_raw=["100 g farine"],
+                steps_raw=["Mélanger."],
+                source_url="https://example.com/fr/r1",
+                language="fr",
+            ),
+        }
+        adapter = FakeAdapter(urls=list(recipes.keys()), recipes=recipes)
+
+        result = _run_source(adapter, tmp_path, allowed_languages=None)
+
+        assert result.fetched == 1
 
 
 class TestNextRecipeId:
@@ -834,6 +884,81 @@ class TestValidateRecipeContent:
             _validate_recipe_content(raw, "https://a.ch/good")
 
         assert "empty description" not in caplog.text
+
+    def test_warns_on_suspicious_nav_ingredients(self, caplog):
+        import logging
+
+        raw = RawRecipe(
+            title="Bad",
+            ingredients_raw=["ShopHauptmenüJetzt entdecken", "Werbung buchen"],
+            steps_raw=["Some step."],
+        )
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            result = _validate_recipe_content(raw, "https://a.ch/nav")
+
+        assert result is True  # warns but doesn't reject
+        assert "suspicious ingredients" in caplog.text
+
+    def test_warns_on_long_average_ingredients(self, caplog):
+        import logging
+
+        raw = RawRecipe(
+            title="Long",
+            ingredients_raw=["x" * 200, "y" * 200],
+            steps_raw=["Cook."],
+        )
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _validate_recipe_content(raw, "https://a.ch/long")
+
+        assert "avg length" in caplog.text
+
+    def test_no_warning_on_good_ingredients(self, caplog):
+        import logging
+
+        raw = RawRecipe(
+            title="Good",
+            ingredients_raw=["200 g Mehl", "3 Eier", "1 dl Milch"],
+            steps_raw=["Mischen."],
+            description="Nice.",
+        )
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _validate_recipe_content(raw, "https://a.ch/good")
+
+        assert "suspicious" not in caplog.text
+
+
+class TestWarnOnSuspiciousIngredients:
+    """Tests for the _warn_on_suspicious_ingredients helper."""
+
+    def test_no_warning_for_normal_ingredients(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _warn_on_suspicious_ingredients(["200 g Mehl", "3 Eier", "1 Prise Salz"], "http://test")
+        assert caplog.text == ""
+
+    def test_warns_on_nav_keywords(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _warn_on_suspicious_ingredients(
+                ["ShopHauptmenüMenu Schliessen", "Jetzt entdecken"], "http://test"
+            )
+        assert "navigation keywords" in caplog.text
+
+    def test_warns_on_excessive_length(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _warn_on_suspicious_ingredients(["a" * 200, "b" * 180], "http://test")
+        assert "avg length" in caplog.text
+
+    def test_warns_on_no_numbers(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="recipebrain.etl"):
+            _warn_on_suspicious_ingredients(["Butter", "Mehl", "Salz", "Pfeffer"], "http://test")
+        assert "contain numbers" in caplog.text
 
 
 class TestValidationSkippedInPipeline:

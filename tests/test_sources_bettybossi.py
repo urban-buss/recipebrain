@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from recipebrain.settings import ScrapingConfig, Settings
+from recipebrain.settings import ScrapingConfig, Settings, SourceConfig
 from recipebrain.sources.bettybossi import (
     BettybossiAdapter,
     _detect_language,
@@ -17,6 +17,7 @@ from recipebrain.sources.bettybossi import (
     _extract_keywords,
     _first_srcset_url,
     _is_recipe_url,
+    _is_valid_ingredient_text,
     _parse_sitemap_urls,
 )
 
@@ -45,8 +46,8 @@ class TestBettybossiDiscover:
 
         urls = list(adapter.discover())
 
-        # Fixture has 3 recipe URLs per sitemap, fetched from 2 sitemaps = 6 total
-        assert len(urls) == 6
+        # Default config is DE-only; fixture has 3 recipe URLs
+        assert len(urls) == 3
         assert all("/rezepte/rezept/" in url for url in urls)
 
     def test_discover_filters_non_recipe_urls(self):
@@ -67,7 +68,7 @@ class TestBettybossiDiscover:
         for non_recipe in non_recipe_urls:
             assert non_recipe not in urls
 
-    def test_discover_fetches_both_sitemaps(self):
+    def test_discover_fetches_only_configured_language(self):
         adapter, mock_client = _adapter_with_mock_client()
         mock_response = MagicMock()
         mock_response.text = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
@@ -76,8 +77,45 @@ class TestBettybossiDiscover:
 
         list(adapter.discover())
 
-        # Should fetch both DE and FR sitemaps
+        # Default config has no source entry → defaults to DE-only
+        assert mock_client.get.call_count == 1
+        mock_client.get.assert_called_with("https://www.bettybossi.ch/sitemap-recipe-de.xml")
+
+    def test_discover_fetches_both_sitemaps_when_configured(self):
+        settings = Settings(
+            scraping=ScrapingConfig(rate_limit_seconds=0),
+            sources={"bettybossi": SourceConfig(languages=["de", "fr"])},
+        )
+        adapter = BettybossiAdapter(settings=settings)
+        mock_client = MagicMock()
+        adapter._client = mock_client
+        mock_response = MagicMock()
+        mock_response.text = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        list(adapter.discover())
+
+        # Configured for both DE and FR
         assert mock_client.get.call_count == 2
+
+    def test_discover_fetches_only_fr_when_configured(self):
+        settings = Settings(
+            scraping=ScrapingConfig(rate_limit_seconds=0),
+            sources={"bettybossi": SourceConfig(languages=["fr"])},
+        )
+        adapter = BettybossiAdapter(settings=settings)
+        mock_client = MagicMock()
+        adapter._client = mock_client
+        mock_response = MagicMock()
+        mock_response.text = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        list(adapter.discover())
+
+        assert mock_client.get.call_count == 1
+        mock_client.get.assert_called_with("https://www.bettybossi.ch/sitemap-recipe-fr.xml")
 
     def test_discover_continues_on_http_error(self):
         adapter, mock_client = _adapter_with_mock_client()
@@ -90,7 +128,8 @@ class TestBettybossiDiscover:
         urls = list(adapter.discover())
 
         assert urls == []
-        assert mock_client.get.call_count == 2
+        # DE-only by default → 1 call
+        assert mock_client.get.call_count == 1
 
 
 class TestBettybossiFetch:
@@ -306,6 +345,85 @@ class TestBettybossiFetch:
 
         assert recipe.category == "Hauptgerichte"
 
+    def test_fetch_jsonld_overrides_garbage_cuisine_with_html(self):
+        """JSON-LD recipeCuisine contains category tags — should be replaced by HTML extraction."""
+        html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Pad Thai",
+ "recipeCuisine":"milchprodukte, käse, eier, familien-gerichte",
+ "recipeIngredient":["200g Nudeln","2 Eier"],
+ "recipeInstructions":[{"@type":"HowToStep","text":"Stir fry."}]}
+</script>
+<meta name="keywords" content="thai, asiatisch">
+</head>
+<body></body>
+</html>"""
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://www.bettybossi.ch/de/rezepte/rezept/pad-thai-99996/")
+
+        # Should extract "thai" from meta keywords, not the garbage JSON-LD value
+        assert recipe.cuisine == "thai"
+
+    def test_fetch_jsonld_cuisine_empty_when_no_html_match(self):
+        """When JSON-LD has garbage cuisine and HTML has no cuisine keyword, result is empty."""
+        html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Gratin",
+ "recipeCuisine":"kartoffeln, getreide",
+ "recipeIngredient":["500g Kartoffeln"],
+ "recipeInstructions":[{"@type":"HowToStep","text":"Backen."}]}
+</script>
+</head>
+<body></body>
+</html>"""
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://www.bettybossi.ch/de/rezepte/rezept/gratin-99995/")
+
+        assert recipe.cuisine == ""
+        # recipeCuisine category tags should be harvested as keywords
+        assert "kartoffeln" in recipe.keywords
+        assert "getreide" in recipe.keywords
+
+    def test_fetch_jsonld_cuisine_tags_become_keywords(self):
+        """Comma-separated recipeCuisine tags should be extracted as keywords."""
+        html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Steak",
+ "recipeCuisine":"fleisch, familien-gerichte, für gäste",
+ "recipeIngredient":["500g Rindsfilet"],
+ "recipeInstructions":[{"@type":"HowToStep","text":"Braten."}]}
+</script>
+</head>
+<body></body>
+</html>"""
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://www.bettybossi.ch/de/rezepte/rezept/steak-99994/")
+
+        assert "fleisch" in recipe.keywords
+        assert "familien-gerichte" in recipe.keywords
+        assert "für gäste" in recipe.keywords
+
 
 class TestHelpers:
     def test_is_recipe_url_de(self):
@@ -467,7 +585,7 @@ class TestIngredientGroups:
         assert groups == []
 
     def test_fetch_populates_ingredient_groups_from_jsonld_recipe(self):
-        """JSON-LD recipe with HTML groups should have ingredient_groups set."""
+        """JSON-LD recipe with ingredients should NOT override with HTML groups."""
         html = FIXTURES.joinpath("bettybossi_recipe.html").read_text(encoding="utf-8")
 
         adapter, mock_client = _adapter_with_mock_client()
@@ -480,11 +598,10 @@ class TestIngredientGroups:
             "https://www.bettybossi.ch/de/rezepte/rezept/kartoffelgratin-10002010/"
         )
 
-        # The fixture has a single ungrouped section
-        assert len(recipe.ingredient_groups) >= 1
-        # All ingredient items should be present across groups
-        all_items = [item for g in recipe.ingredient_groups for item in g.items]
-        assert len(all_items) >= 1
+        # When JSON-LD provides ingredients_raw, ingredient_groups is not set from HTML
+        assert recipe.ingredient_groups == []
+        # ingredients_raw from JSON-LD is preserved
+        assert len(recipe.ingredients_raw) == 8
 
     def test_fetch_grouped_html_fallback(self):
         """HTML fallback should extract ingredient groups."""
@@ -600,3 +717,101 @@ class TestGalleryImageExtraction:
 
     def test_first_srcset_url_empty(self):
         assert _first_srcset_url("") == ""
+
+
+class TestIngredientValidation:
+    """Tests for navigation text rejection in ingredient extraction."""
+
+    def test_valid_ingredient_text_normal(self):
+        assert _is_valid_ingredient_text("200 g Mehl")
+        assert _is_valid_ingredient_text("1 EL Butter")
+        assert _is_valid_ingredient_text("wenig Pfeffer aus der Mühle")
+
+    def test_valid_ingredient_text_rejects_empty(self):
+        assert not _is_valid_ingredient_text("")
+
+    def test_valid_ingredient_text_rejects_long_text(self):
+        assert not _is_valid_ingredient_text("x" * 250)
+
+    def test_valid_ingredient_text_rejects_nav_keywords(self):
+        assert not _is_valid_ingredient_text("ShopHauptmenüMenu SchliessenShopJetzt entdecken")
+        assert not _is_valid_ingredient_text("Werbung buchen")
+        assert not _is_valid_ingredient_text("Jetzt entdecken Mai Highlights")
+        assert not _is_valid_ingredient_text("Jetzt weiterstöbern Rezepte")
+
+    def test_valid_ingredient_text_accepts_edge_cases(self):
+        assert _is_valid_ingredient_text("1 Prise Salz")
+        assert _is_valid_ingredient_text(
+            "800 g mehlig kochende Kartoffeln, in ca. 2 mm dicken Scheiben"
+        )
+
+    def test_fetch_does_not_override_jsonld_ingredients_with_html(self):
+        """When JSON-LD provides ingredients, HTML extraction should not override them."""
+        html = FIXTURES.joinpath("bettybossi_recipe.html").read_text(encoding="utf-8")
+
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch(
+            "https://www.bettybossi.ch/de/rezepte/rezept/kartoffelgratin-10002010/"
+        )
+
+        # JSON-LD has 8 ingredients — they should be preserved as ingredients_raw
+        assert len(recipe.ingredients_raw) == 8
+        assert "1 Knoblauchzehe, längs halbiert" in recipe.ingredients_raw
+
+    def test_fetch_uses_html_ingredients_when_jsonld_lacks_them(self):
+        """When JSON-LD has no ingredients, HTML extraction should provide them."""
+        html = """<!DOCTYPE html>
+<html lang="de">
+<head>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Testrezept",
+ "recipeInstructions":[{"@type":"HowToStep","text":"Alles kochen."}]}
+</script>
+</head>
+<body>
+    <section class="ingredients">
+        <h2>Zutaten</h2>
+        <ul>
+            <li>100 g Zucker</li>
+            <li>2 Eier</li>
+        </ul>
+    </section>
+</body>
+</html>"""
+        adapter, mock_client = _adapter_with_mock_client()
+        mock_response = MagicMock()
+        mock_response.text = html
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        recipe = adapter.fetch("https://www.bettybossi.ch/de/rezepte/rezept/testrezept-99999/")
+
+        assert len(recipe.ingredient_groups) == 1
+        assert "100 g Zucker" in recipe.ingredient_groups[0].items
+        assert "2 Eier" in recipe.ingredient_groups[0].items
+
+    def test_extract_ingredient_groups_rejects_nav_text(self):
+        """Ingredient extraction should reject navigation text matching nav keywords."""
+        from selectolax.parser import HTMLParser
+
+        from recipebrain.sources.bettybossi import _extract_ingredient_groups
+
+        html = """<html><body>
+        <section class="ingredients">
+            <ul>
+                <li>ShopHauptmenüMenu SchliessenShopJetzt entdecken</li>
+                <li>Werbung buchen</li>
+                <li>HaushaltShopHaushaltJetzt entdeckenUnterwegs</li>
+            </ul>
+        </section>
+        </body></html>"""
+        tree = HTMLParser(html)
+        groups = _extract_ingredient_groups(tree)
+
+        # All items contain navigation keywords — should be rejected
+        assert groups == []

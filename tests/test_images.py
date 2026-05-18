@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+import io
 from unittest.mock import MagicMock
 
 import httpx
+import pytest
+from PIL import Image
 
 from recipebrain.images import (
     _extension_from_url,
     _image_filename,
+    _output_extension,
+    _resize_and_compress,
+    _rewrite_cdn_url,
     _url_hash,
     download_recipe_images,
     images_dir,
 )
+from recipebrain.settings import ImagesConfig
 
 
 class TestUrlHash:
@@ -70,6 +77,21 @@ class TestImageFilename:
         a = _image_filename(1, 1, "https://example.com/a.jpg")
         b = _image_filename(1, 2, "https://example.com/a.jpg")
         assert a != b
+
+    def test_with_config_jpeg(self):
+        cfg = ImagesConfig(format="jpeg", enabled=True)
+        name = _image_filename(1, 1, "https://example.com/photo.png", config=cfg)
+        assert name.endswith(".jpg")
+
+    def test_with_config_webp(self):
+        cfg = ImagesConfig(format="webp", enabled=True)
+        name = _image_filename(1, 1, "https://example.com/photo.png", config=cfg)
+        assert name.endswith(".webp")
+
+    def test_with_disabled_config_uses_source_ext(self):
+        cfg = ImagesConfig(format="webp", enabled=False)
+        name = _image_filename(1, 1, "https://example.com/photo.png", config=cfg)
+        assert name.endswith(".png")
 
 
 class TestImagesDir:
@@ -194,3 +216,252 @@ class TestDownloadRecipeImages:
         assert paths[0] is not None
         assert paths[1] is None
         assert paths[2] is not None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_test_image(width: int = 200, height: int = 150, fmt: str = "JPEG") -> bytes:
+    """Create a minimal valid image in memory."""
+    img = Image.new("RGB", (width, height), color=(255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format=fmt)
+    return buf.getvalue()
+
+
+def _make_tiny_image(width: int = 1, height: int = 1) -> bytes:
+    """Create a 1x1 tracking pixel."""
+    img = Image.new("RGB", (width, height), color=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# New test classes for compression/CDN features
+# ---------------------------------------------------------------------------
+
+
+class TestOutputExtension:
+    def test_none_config_defaults_to_jpg(self):
+        assert _output_extension(None) == ".jpg"
+
+    def test_jpeg_format(self):
+        assert _output_extension(ImagesConfig(format="jpeg")) == ".jpg"
+
+    def test_webp_format(self):
+        assert _output_extension(ImagesConfig(format="webp")) == ".webp"
+
+
+class TestRewriteCdnUrl:
+    def test_migros_url_downsized(self):
+        url = "https://recipeimages.migros.ch/crop/v-w-2050-h-1367-a-center_center/abc/img.jpg"
+        result = _rewrite_cdn_url(url, 1200)
+        assert "v-w-1200-h-800" in result
+        assert result.endswith("/abc/img.jpg")
+
+    def test_migros_url_already_small(self):
+        url = "https://recipeimages.migros.ch/crop/v-w-330-h-186-a-center_center/abc/img.jpg"
+        result = _rewrite_cdn_url(url, 1200)
+        # Already smaller than max_width, unchanged
+        assert result == url
+
+    def test_non_migros_url_passthrough(self):
+        url = "https://media.bettybossi.ch/img/photo.jpg"
+        assert _rewrite_cdn_url(url, 1200) == url
+
+    def test_no_match_passthrough(self):
+        url = "https://recipeimages.migros.ch/other/path/img.jpg"
+        assert _rewrite_cdn_url(url, 1200) == url
+
+
+class TestResizeAndCompress:
+    def test_resizes_large_image(self):
+        data = _make_test_image(2050, 1367)
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+        img = Image.open(io.BytesIO(result))
+        assert img.width == 800
+        assert img.height == pytest.approx(533, abs=1)
+
+    def test_small_image_not_upscaled(self):
+        data = _make_test_image(400, 300)
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+        img = Image.open(io.BytesIO(result))
+        assert img.width == 400
+        assert img.height == 300
+
+    def test_rejects_tracking_pixel(self):
+        data = _make_tiny_image(1, 1)
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is None
+
+    def test_rejects_small_pixel_at_threshold(self):
+        data = _make_tiny_image(10, 10)
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is None
+
+    def test_accepts_image_above_threshold(self):
+        data = _make_test_image(11, 11)
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+
+    def test_webp_output(self):
+        data = _make_test_image(200, 150)
+        cfg = ImagesConfig(max_width=800, quality=75, format="webp", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+        img = Image.open(io.BytesIO(result))
+        assert img.format == "WEBP"
+
+    def test_jpeg_output_from_png(self):
+        data = _make_test_image(200, 150, fmt="PNG")
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+        img = Image.open(io.BytesIO(result))
+        assert img.format == "JPEG"
+
+    def test_rgba_converted_for_jpeg(self):
+        img = Image.new("RGBA", (200, 150), color=(255, 0, 0, 128))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        data = buf.getvalue()
+
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+        out = Image.open(io.BytesIO(result))
+        assert out.mode == "RGB"
+
+    def test_invalid_data_returns_raw(self):
+        cfg = ImagesConfig(max_width=800, quality=80, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(b"not-an-image", cfg)
+        assert result == b"not-an-image"
+
+    def test_compression_reduces_size(self):
+        # Large uncompressed image should compress significantly
+        data = _make_test_image(2000, 1500)
+        cfg = ImagesConfig(max_width=800, quality=70, format="jpeg", min_dimension=10)
+        result = _resize_and_compress(data, cfg)
+        assert result is not None
+        assert len(result) < len(data)
+
+
+class TestDownloadWithConfig:
+    """Tests for download_recipe_images with image processing config."""
+
+    def _cfg(self, **kwargs) -> ImagesConfig:
+        defaults = {"max_width": 800, "quality": 80, "format": "jpeg", "min_dimension": 10}
+        defaults.update(kwargs)
+        return ImagesConfig(**defaults)
+
+    def test_resizes_on_download(self, tmp_path):
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock()
+        mock_response.content = _make_test_image(2050, 1367)
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        urls = ["https://media.bettybossi.ch/img/photo.jpg"]
+        cfg = self._cfg()
+        paths = download_recipe_images(
+            urls, recipe_id=1, output_dir=tmp_path, client=mock_client, config=cfg
+        )
+
+        assert len(paths) == 1
+        assert paths[0] is not None
+        # Verify the stored image is resized
+        stored = Image.open(tmp_path / paths[0])
+        assert stored.width == 800
+
+    def test_rejects_tracking_pixel_on_download(self, tmp_path):
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock()
+        mock_response.content = _make_tiny_image(1, 1)
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        urls = ["https://media.bettybossi.ch/img/pixel.jpg"]
+        cfg = self._cfg()
+        paths = download_recipe_images(
+            urls, recipe_id=1, output_dir=tmp_path, client=mock_client, config=cfg
+        )
+
+        assert paths[0] is None
+
+    def test_rewrites_migros_cdn_url(self, tmp_path):
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock()
+        mock_response.content = _make_test_image(800, 533)
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        url = "https://recipeimages.migros.ch/crop/v-w-2050-h-1367-a-center_center/abc/img.jpg"
+        cfg = self._cfg(max_width=800)
+        download_recipe_images(
+            [url], recipe_id=1, output_dir=tmp_path, client=mock_client, config=cfg
+        )
+
+        # Verify the CDN was called with rewritten URL
+        called_url = mock_client.get.call_args[0][0]
+        assert "v-w-800-h-533" in called_url
+
+    def test_disabled_config_stores_raw(self, tmp_path):
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock()
+        raw_data = _make_test_image(2050, 1367)
+        mock_response.content = raw_data
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        urls = ["https://media.bettybossi.ch/img/photo.jpg"]
+        cfg = ImagesConfig(enabled=False)
+        paths = download_recipe_images(
+            urls, recipe_id=1, output_dir=tmp_path, client=mock_client, config=cfg
+        )
+
+        assert paths[0] is not None
+        stored_bytes = (tmp_path / paths[0]).read_bytes()
+        assert stored_bytes == raw_data
+
+    def test_webp_output_extension(self, tmp_path):
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_response = MagicMock()
+        mock_response.content = _make_test_image(200, 150)
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        urls = ["https://media.bettybossi.ch/img/photo.png"]
+        cfg = self._cfg(format="webp")
+        paths = download_recipe_images(
+            urls, recipe_id=1, output_dir=tmp_path, client=mock_client, config=cfg
+        )
+
+        assert paths[0] is not None
+        assert paths[0].endswith(".webp")
+
+    def test_none_config_stores_raw(self, tmp_path):
+        """Backward compat: no config = raw bytes, same as before."""
+        mock_client = MagicMock(spec=httpx.Client)
+        raw_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        mock_response = MagicMock()
+        mock_response.content = raw_data
+        mock_response.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_response
+
+        urls = ["https://media.bettybossi.ch/img/photo.png"]
+        paths = download_recipe_images(
+            urls, recipe_id=1, output_dir=tmp_path, client=mock_client, config=None
+        )
+
+        assert paths[0] is not None
+        assert (tmp_path / paths[0]).read_bytes() == raw_data

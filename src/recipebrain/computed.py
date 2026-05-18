@@ -386,22 +386,34 @@ def compute_dietary_flags(
 ) -> list[str]:
     """Compute dietary classification flags for a recipe.
 
-    Returns a sorted list of applicable flags.
+    Returns a sorted list of applicable flags.  When ingredients exist but
+    none could be resolved (all ``ingredient_id`` null), returns an empty
+    list rather than falsely claiming vegan/vegetarian.
 
     Examples:
         >>> compute_dietary_flags([], total_minutes=20)
         ['dairy-free', 'quick', 'vegan', 'vegetarian']
         >>> compute_dietary_flags([{"ingredient_id": 1}])
         []
+        >>> compute_dietary_flags([{"ingredient_id": None}])
+        []
     """
     resolved = _resolve_ingredients(ingredient_rows)
+
+    # Guard: ingredients exist but none resolved — cannot determine dietary info
+    if ingredient_rows and not resolved:
+        flags: list[str] = []
+        if total_minutes is not None and total_minutes <= 30:
+            flags.append("quick")
+        return sorted(flags)
+
     categories = {e.category for _r, e in resolved}
 
     has_meat = "meat" in categories
     has_fish = "fish" in categories
     has_dairy = "dairy" in categories
 
-    flags: list[str] = []
+    flags = []
 
     if not has_meat and not has_fish:
         flags.append("vegetarian")
