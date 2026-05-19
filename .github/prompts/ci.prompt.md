@@ -4,7 +4,7 @@ agent: agent
 ---
 # Local CI
 
-Run the full CI pipeline locally and report results. Follow these steps in order:
+Run the full CI pipeline locally. All steps are **blocking** — every step must pass with zero errors and zero warnings unless explicitly overridden by the user. Follow these steps in order:
 
 ## 1. Lint & Format
 
@@ -21,7 +21,7 @@ Fix any issues found before proceeding.
 mypy src/recipebrain
 ```
 
-Report errors but continue (typecheck is non-blocking, matching CI config).
+All type errors must be resolved before proceeding.
 
 ## 3. Test Collection Check
 
@@ -37,7 +37,7 @@ Verify there are no collection errors (missing fixtures, bad imports) and no `Py
 pytest --cov=recipebrain --cov-report=term-missing -W error::pytest.PytestCollectionWarning
 ```
 
-All tests must pass with zero errors and zero collection warnings. Report coverage summary.
+All tests must pass with zero errors and zero warnings. Report coverage summary.
 
 ## 5. Smoke Test
 
@@ -63,8 +63,21 @@ python .github/tools/sync-skills.py
 git diff --exit-code src/recipebrain/skills/
 ```
 
-If the diff is non-empty, skills are out of sync — flag this.
+If the diff is non-empty, skills are out of sync — fix before proceeding.
+
+## Fix & Retest
+
+If any step produces errors or warnings, fix the issues and re-run the failing step(s) until they pass cleanly.
+
+## Commit
+
+Once all steps pass with zero errors and zero warnings, commit all changes:
+
+```
+git add -A
+git commit -m "<descriptive message summarizing the fixes>"
+```
 
 ## Report
 
-Summarize pass/fail status for each step. If everything passes, confirm the branch is CI-ready.
+Summarize pass/fail status for each step. Confirm all checks passed and changes were committed.

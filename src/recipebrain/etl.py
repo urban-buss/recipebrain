@@ -23,9 +23,16 @@ from recipebrain.transform import (
     build_recipe_ingredients_rows,
     build_recipe_row,
     build_recipe_steps_rows,
+    build_tag_rows_from_classification,
     build_tag_rows_from_keywords,
 )
-from recipebrain.writer import append_table, read_table, write_schema_version, write_table
+from recipebrain.writer import (
+    append_table,
+    read_table,
+    update_table_row,
+    write_schema_version,
+    write_table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -440,6 +447,108 @@ def _log_etl_run(
         logger.warning("ETL: failed to write etl_runs log for %s", result.source, exc_info=True)
 
 
+def _start_etl_run(
+    source_key: str,
+    started_at: datetime,
+    batch_size: int | None,
+    limit: int | None,
+    output_dir: Path,
+) -> int:
+    """Write an initial 'running' etl_runs row at source start.
+
+    Returns the assigned run ID for subsequent updates.
+    """
+    effective_batch = batch_size if batch_size is not None else _DEFAULT_BATCH_SIZE
+    run_id = _next_run_id(output_dir)
+
+    run_row = {
+        "id": run_id,
+        "started_at": started_at,
+        "finished_at": None,
+        "duration_seconds": None,
+        "source": source_key,
+        "discovered": 0,
+        "fetched": 0,
+        "skipped": 0,
+        "errors": 0,
+        "soft_deleted": 0,
+        "validation_skipped": 0,
+        "batch_size": effective_batch,
+        "limit": limit,
+        "error_summary": None,
+        "status": "running",
+    }
+    try:
+        append_table("etl_runs", [run_row], output_dir)
+    except Exception:
+        logger.warning("ETL: failed to write initial etl_runs for %s", source_key, exc_info=True)
+    return run_id
+
+
+def _update_etl_run_progress(
+    run_id: int,
+    result: EtlResult,
+    output_dir: Path,
+) -> None:
+    """Update counters on an in-progress etl_runs row after a batch flush."""
+    updates = {
+        "discovered": result.discovered,
+        "fetched": result.fetched,
+        "skipped": result.skipped,
+        "errors": result.errors,
+        "validation_skipped": result.validation_skipped,
+    }
+    try:
+        update_table_row("etl_runs", run_id, updates, output_dir)
+    except Exception:
+        logger.warning("ETL: failed to update etl_runs progress for run %d", run_id, exc_info=True)
+
+
+def _finish_etl_run(
+    run_id: int,
+    result: EtlResult,
+    t0: float,
+    status: str,
+    output_dir: Path,
+) -> None:
+    """Finalize an etl_runs row with final counters, status, and timestamps."""
+    finished_at = datetime.now(UTC)
+    duration = time.monotonic() - t0
+    error_summary = "; ".join(result.error_details[:10]) if result.error_details else None
+
+    updates = {
+        "finished_at": finished_at,
+        "duration_seconds": round(duration, 2),
+        "discovered": result.discovered,
+        "fetched": result.fetched,
+        "skipped": result.skipped,
+        "errors": result.errors,
+        "soft_deleted": result.soft_deleted,
+        "validation_skipped": result.validation_skipped,
+        "error_summary": error_summary,
+        "status": status,
+    }
+    try:
+        update_table_row("etl_runs", run_id, updates, output_dir)
+    except Exception:
+        logger.warning("ETL: failed to finalize etl_runs for run %d", run_id, exc_info=True)
+
+
+def _detect_interrupted_runs(source_key: str, output_dir: Path) -> list[dict]:
+    """Find previous runs for this source that are still marked 'running'.
+
+    These indicate a crashed/interrupted run whose progress was already
+    flushed to the recipes table (and thus will be skipped on resumption).
+    """
+    try:
+        table = read_table("etl_runs", output_dir)
+    except (DataStaleError, Exception):
+        return []
+
+    rows = table.to_pylist()
+    return [r for r in rows if r.get("source") == source_key and r.get("status") == "running"]
+
+
 def _run_source(
     adapter: SourceAdapter,
     output_dir: Path,
@@ -470,6 +579,26 @@ def _run_source(
     next_id = _next_recipe_id(output_dir)
     existing_tags, next_tag_id = _get_existing_tags(output_dir)
 
+    # Detect previous interrupted runs for this source (indicates resumption)
+    stale_runs = _detect_interrupted_runs(adapter.key, output_dir)
+    if stale_runs:
+        for stale in stale_runs:
+            logger.info(
+                "ETL: marking stale run %d for %s as 'crashed' (started %s)",
+                stale["id"],
+                adapter.key,
+                stale.get("started_at"),
+            )
+            _finish_etl_run(stale["id"], EtlResult(source=adapter.key), t0, "crashed", output_dir)
+        logger.info(
+            "ETL: resuming %s — %d URLs already processed from previous run(s)",
+            adapter.key,
+            len(existing_urls),
+        )
+
+    # Write initial "running" row immediately (visible even if process crashes)
+    run_id = _start_etl_run(adapter.key, started_at, batch_size, limit, output_dir)
+
     logger.info("ETL: discovering recipes from %s", adapter.key)
 
     # Discover URLs
@@ -481,7 +610,7 @@ def _run_source(
         logger.error("ETL: discovery failed for %s: %s", adapter.key, exc)
         result.errors += 1
         result.error_details.append(f"Discovery failed: {exc}")
-        _log_etl_run(result, started_at, t0, batch_size, limit, "failed", output_dir)
+        _finish_etl_run(run_id, result, t0, "failed", output_dir)
         return result
 
     logger.info("ETL: found %d URLs from %s", len(urls), adapter.key)
@@ -578,6 +707,15 @@ def _run_source(
                 if batch_tags:
                     next_tag_id = batch_tags[-1]["id"] + 1
 
+                # Build tags from computed classification fields
+                cls_tags, cls_rt = build_tag_rows_from_classification(
+                    recipe_rows, existing_tags, next_tag_id
+                )
+                for t in cls_tags:
+                    existing_tags[t["key"]] = t["id"]
+                if cls_tags:
+                    next_tag_id = cls_tags[-1]["id"] + 1
+
                 _flush_rows(
                     recipe_rows,
                     steps_rows,
@@ -585,9 +723,12 @@ def _run_source(
                     ingredients_rows,
                     output_dir,
                     adapter.key,
-                    tag_rows=batch_tags,
-                    recipe_tag_rows=batch_rt,
+                    tag_rows=batch_tags + cls_tags,
+                    recipe_tag_rows=batch_rt + cls_rt,
                 )
+
+                # Update run progress after each batch flush
+                _update_etl_run_progress(run_id, result, output_dir)
     except KeyboardInterrupt:
         interrupted = True
         logger.warning("ETL: interrupted — flushing %d buffered recipes to disk", len(recipe_rows))
@@ -599,6 +740,15 @@ def _run_source(
         )
         for t in remaining_tags:
             existing_tags[t["key"]] = t["id"]
+        if remaining_tags:
+            next_tag_id = remaining_tags[-1]["id"] + 1
+
+        # Build tags from computed classification fields
+        cls_tags, cls_rt = build_tag_rows_from_classification(
+            recipe_rows, existing_tags, next_tag_id
+        )
+        for t in cls_tags:
+            existing_tags[t["key"]] = t["id"]
 
         # Always write remaining rows, even on Ctrl+C
         _flush_rows(
@@ -608,8 +758,8 @@ def _run_source(
             ingredients_rows,
             output_dir,
             adapter.key,
-            tag_rows=remaining_tags,
-            recipe_tag_rows=remaining_rt,
+            tag_rows=remaining_tags + cls_tags,
+            recipe_tag_rows=remaining_rt + cls_rt,
         )
 
     # Soft-delete recipes whose URLs are no longer discovered
@@ -631,7 +781,7 @@ def _run_source(
     else:
         run_status = "success"
 
-    _log_etl_run(result, started_at, t0, batch_size, limit, run_status, output_dir)
+    _finish_etl_run(run_id, result, t0, run_status, output_dir)
 
     return result
 

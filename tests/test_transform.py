@@ -6,10 +6,13 @@ import pytest
 
 from recipebrain.sources.base import RawIngredientGroup, RawRecipe
 from recipebrain.transform import (
+    _clamp_int16,
     _compute_content_hash,
     _extract_external_id,
     _infer_course,
     _infer_cuisine,
+    _infer_cuisine_from_ingredients,
+    _infer_cuisine_from_url,
     _infer_difficulty,
     _normalise_course,
     _normalise_cuisine,
@@ -160,16 +163,49 @@ class TestBuildRecipeRow:
         assert row["cook_minutes"] == 25
         assert row["total_minutes"] == 40
 
-    def test_equal_prep_cook_without_total_not_deduped(self):
-        """When prep == cook but no totalTime is available, keep as-is.
+    def test_equal_prep_cook_without_total_deduped(self):
+        """When prep == cook but no totalTime, source duplicated one value.
 
-        Could be a legitimate case (e.g. 5 min prep + 5 min cook).
+        Betty Bossi commonly puts the same duration into both prepTime and
+        cookTime without providing totalTime. Treat as duplication.
         """
         raw = RawRecipe(title="Test", prep_time="PT10M", cook_time="PT10M")
         row = build_recipe_row(raw, source_id=1, recipe_id=1)
-        assert row["prep_minutes"] == 10
-        assert row["cook_minutes"] == 10
-        assert row["total_minutes"] == 20
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 10
+
+    def test_overflow_time_clamped_to_none(self):
+        """Time values exceeding int16 max are clamped to None."""
+        # PT80640M exceeds both the 7-day cap and int16 max
+        raw = RawRecipe(title="Test", prep_time="PT80640M", cook_time="PT30M")
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        # prep is None due to _parse_iso_duration cap
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] == 30
+        assert row["total_minutes"] == 30
+
+    def test_equal_prep_cook_with_different_total_uses_total(self):
+        """When prep == cook but totalTime differs, use totalTime as canonical."""
+        raw = RawRecipe(
+            title="Test",
+            prep_time="PT30M",
+            cook_time="PT30M",
+            total_time="PT45M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 45
+
+    def test_computed_total_exceeding_int16_clamped(self):
+        """High equal prep/cook values are deduped — total equals one of them."""
+        # prep == cook triggers dedup: total = prep (10080), not sum
+        raw = RawRecipe(title="Test", prep_time="PT10080M", cook_time="PT10080M")
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 10_080  # deduped, not doubled
 
 
 class TestBuildRecipeSteps:
@@ -349,10 +385,33 @@ class TestParseIsoDuration:
             ("   ", None),
             ("not a duration", None),
             ("P1D", None),  # days not supported
+            # Overflow protection: values exceeding 7-day cap → None
+            ("PT80640M", None),  # 56 days — source data error
+            ("PT1344H", None),  # 56 days in hours
+            ("PT10080M", 10_080),  # exactly 7 days — at cap boundary
+            ("PT10081M", None),  # just over cap
+            ("PT168H", 10_080),  # 7 days in hours — at cap boundary
+            ("PT169H", None),  # just over cap in hours
         ],
     )
     def test_parse(self, iso, expected):
         assert _parse_iso_duration(iso) == expected
+
+
+class TestClampInt16:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (None, None),
+            (0, 0),
+            (100, 100),
+            (32_767, 32_767),
+            (32_768, None),
+            (80_640, None),
+        ],
+    )
+    def test_clamp(self, value, expected):
+        assert _clamp_int16(value) == expected
 
 
 class TestNormaliseTitle:
@@ -679,6 +738,187 @@ class TestInferCuisine:
         """Currywurst contains 'curry' but the negative lookahead prevents it."""
         assert _infer_cuisine("", "Currywurst", []) is None
 
+    @pytest.mark.parametrize(
+        ("title", "expected"),
+        [
+            # New Swiss patterns
+            ("Bündnerfleisch-Platte", "swiss"),
+            ("Appenzeller Käseschnitte", "swiss"),
+            ("Gruyère-Suppe", "swiss"),
+            # New Italian patterns
+            ("Pesto-Pasta mit Tomaten", "italian"),
+            ("Tagliatelle mit Pilzen", "italian"),
+            ("Rigatoni al forno", "italian"),
+            ("Carpaccio vom Rind", "italian"),
+            # New French patterns
+            ("Tarte Tatin mit Äpfeln", "french"),
+            ("Brioche mit Konfitüre", "french"),
+            ("Gratin dauphinois", "french"),
+            ("Salade niçoise", "french"),
+            # New Japanese patterns
+            ("Edamame-Bowl", "japanese"),
+            # New Asian patterns
+            ("Glasnudeln mit Gemüse", "asian"),
+            ("Frühlingsrollen", "asian"),
+            # New Indian patterns
+            ("Gemüse-Pakora", "indian"),
+            # New Middle Eastern patterns
+            ("Fattoush-Salat", "middle-eastern"),
+        ],
+    )
+    def test_expanded_patterns(self, title, expected):
+        """Test newly added cuisine signal patterns."""
+        assert _infer_cuisine("", title, []) == expected
+
+    def test_url_fallback_when_title_has_no_signal(self):
+        """URL slug is used when title/keywords have no cuisine signal."""
+        url = "https://www.bettybossi.ch/de/rezepte/rezept/thai-gemuese-99998/"
+        assert _infer_cuisine("", "Gemüsepfanne", [], source_url=url) == "thai"
+
+    def test_url_fallback_asian(self):
+        url = "https://fooby.ch/de/rezepte/asiatische-nudeln-123"
+        assert _infer_cuisine("", "Nudeln mit Gemüse", [], source_url=url) == "asian"
+
+    def test_url_not_used_when_title_matches(self):
+        """Title signal takes priority over URL hint."""
+        url = "https://example.ch/rezepte/asiatisch-gericht-123/"
+        assert _infer_cuisine("", "Risotto ai funghi", [], source_url=url) == "italian"
+
+    def test_ingredient_fallback_asian(self):
+        """Ingredient combination triggers cuisine inference."""
+        rows = [
+            {"raw_text": "2 EL Sojasauce"},
+            {"raw_text": "1 Stück Ingwer, fein gerieben"},
+            {"raw_text": "1 EL Sesamöl"},
+            {"raw_text": "200 g Pouletbrust"},
+        ]
+        assert _infer_cuisine("", "Pouletbrust mit Gemüse", [], ingredient_rows=rows) == "asian"
+
+    def test_ingredient_fallback_italian(self):
+        rows = [
+            {"raw_text": "125 g Mozzarella"},
+            {"raw_text": "1 Bund Basilikum"},
+            {"raw_text": "2 Tomaten"},
+            {"raw_text": "100 g Parmesan, gerieben"},
+        ]
+        assert _infer_cuisine("", "Auflauf", [], ingredient_rows=rows) == "italian"
+
+    def test_ingredient_fallback_indian(self):
+        rows = [
+            {"raw_text": "1 TL Kurkuma"},
+            {"raw_text": "1 TL Garam Masala"},
+            {"raw_text": "200 g rote Linsen"},
+        ]
+        assert _infer_cuisine("", "Linsengericht", [], ingredient_rows=rows) == "indian"
+
+    def test_ingredient_fallback_middle_eastern(self):
+        rows = [
+            {"raw_text": "1 Dose Kichererbsen"},
+            {"raw_text": "2 EL Tahini"},
+            {"raw_text": "1 Zitrone"},
+        ]
+        assert _infer_cuisine("", "Dip", [], ingredient_rows=rows) == "middle-eastern"
+
+    def test_ingredient_not_triggered_with_single_match(self):
+        """Single ingredient match is not enough (min 2 required)."""
+        rows = [
+            {"raw_text": "1 EL Sojasauce"},
+            {"raw_text": "200 g Pouletbrust"},
+            {"raw_text": "300 g Kartoffeln"},
+        ]
+        assert _infer_cuisine("", "Pouletgericht", [], ingredient_rows=rows) is None
+
+    def test_title_takes_priority_over_ingredients(self):
+        """Title signal wins over ingredient-based inference."""
+        rows = [
+            {"raw_text": "2 EL Sojasauce"},
+            {"raw_text": "1 Stück Ingwer"},
+            {"raw_text": "1 EL Sesamöl"},
+        ]
+        assert (
+            _infer_cuisine("", "Spaghetti alla puttanesca", [], ingredient_rows=rows) == "italian"
+        )
+
+
+class TestInferCuisineFromUrl:
+    """Tests for URL-based cuisine inference."""
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("https://www.bettybossi.ch/de/rezepte/rezept/thai-curry-99998/", "thai"),
+            ("https://fooby.ch/de/rezepte/asiatische-gemuesepfanne-123", "asian"),
+            ("https://example.ch/rezepte/italienische-pasta-456/", "italian"),
+            ("https://example.ch/rezepte/indisches-curry-789/", "indian"),
+            ("https://example.ch/rezepte/mexikanische-tacos-101/", "mexican"),
+            ("https://example.ch/rezepte/griechischer-salat-202/", "greek"),
+            ("https://example.ch/rezepte/orientalischer-reis-303/", "middle-eastern"),
+            # No match
+            ("https://www.bettybossi.ch/de/rezepte/rezept/kartoffelgratin-10002010/", None),
+            ("https://fooby.ch/de/rezepte/gemuesesuppe-456", None),
+            ("", None),
+        ],
+    )
+    def test_url_extraction(self, url, expected):
+        assert _infer_cuisine_from_url(url) == expected
+
+
+class TestInferCuisineFromIngredients:
+    """Tests for ingredient-based cuisine inference."""
+
+    def test_asian_combination(self):
+        rows = [
+            {"raw_text": "3 EL Sojasauce"},
+            {"raw_text": "1 Stück Ingwer"},
+            {"raw_text": "2 EL Sesamöl"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) == "asian"
+
+    def test_italian_combination(self):
+        rows = [
+            {"raw_text": "200 g Mozzarella"},
+            {"raw_text": "1 Bund Basilikum"},
+            {"raw_text": "50 g Parmesan"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) == "italian"
+
+    def test_indian_combination(self):
+        rows = [
+            {"raw_text": "2 TL Kurkuma"},
+            {"raw_text": "1 TL Kreuzkümmel"},
+            {"raw_text": "1 TL Garam Masala"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) == "indian"
+
+    def test_middle_eastern_combination(self):
+        rows = [
+            {"raw_text": "400 g Kichererbsen"},
+            {"raw_text": "3 EL Tahini"},
+            {"raw_text": "1 EL Sumach"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) == "middle-eastern"
+
+    def test_mexican_combination(self):
+        rows = [
+            {"raw_text": "200 g Kidneybohnen"},
+            {"raw_text": "1 Avocado"},
+            {"raw_text": "2 Jalapeños"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) == "mexican"
+
+    def test_insufficient_matches_returns_none(self):
+        rows = [
+            {"raw_text": "1 EL Sojasauce"},
+            {"raw_text": "500 g Kartoffeln"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) is None
+
+    def test_empty_rows_returns_none(self):
+        assert _infer_cuisine_from_ingredients([]) is None
+
+    def test_none_rows_returns_none(self):
+        assert _infer_cuisine_from_ingredients(None) is None
+
 
 class TestNormaliseDifficulty:
     @pytest.mark.parametrize(
@@ -959,3 +1199,175 @@ class TestBuildTagRowsFromKeywords:
         assert _slugify_tag("Brunch & Frühstück") == "brunch-frühstück"
         assert _slugify_tag("  Für Gäste  ") == "für-gäste"
         assert _slugify_tag("Kochen & Backen mit Kindern") == "kochen-backen-mit-kindern"
+
+    def test_expanded_facet_map_dietary(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords([(1, ["vegetarisch", "vegan", "glutenfrei"])])
+        facets = {t["key"]: t["facet"] for t in tags}
+        assert facets["vegetarisch"] == "dietary"
+        assert facets["vegan"] == "dietary"
+        assert facets["glutenfrei"] == "dietary"
+
+    def test_expanded_facet_map_method(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords([(1, ["grillieren", "backen"])])
+        facets = {t["key"]: t["facet"] for t in tags}
+        assert facets["grillieren"] == "method"
+        assert facets["backen"] == "method"
+
+    def test_expanded_facet_map_course(self):
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords([(1, ["dessert", "vorspeise"])])
+        facets = {t["key"]: t["facet"] for t in tags}
+        assert facets["dessert"] == "course"
+        assert facets["vorspeise"] == "course"
+
+
+# ---------------------------------------------------------------------------
+# Classification → tag derivation
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTagRowsFromClassification:
+    def test_basic_classification_tags(self):
+        from recipebrain.transform import build_tag_rows_from_classification
+
+        rows = [
+            {
+                "id": 1,
+                "dietary_flags": ["vegetarian", "quick"],
+                "course": "main",
+                "difficulty": "easy",
+                "cooking_method": "braten",
+            }
+        ]
+        tags, rt = build_tag_rows_from_classification(rows)
+
+        keys = {t["key"] for t in tags}
+        assert "vegetarian" in keys
+        assert "quick" in keys
+        assert "main" in keys
+        assert "easy" in keys
+        assert "braten" in keys
+
+        # Facet assignments
+        tag_by_key = {t["key"]: t for t in tags}
+        assert tag_by_key["vegetarian"]["facet"] == "dietary"
+        assert tag_by_key["quick"]["facet"] == "dietary"
+        assert tag_by_key["main"]["facet"] == "course"
+        assert tag_by_key["easy"]["facet"] == "difficulty"
+        assert tag_by_key["braten"]["facet"] == "method"
+
+        # All recipe_tag links point to recipe 1
+        assert len(rt) == 5
+        assert all(r["recipe_id"] == 1 for r in rt)
+
+    def test_empty_fields_produce_no_tags(self):
+        from recipebrain.transform import build_tag_rows_from_classification
+
+        rows = [
+            {
+                "id": 1,
+                "dietary_flags": [],
+                "course": None,
+                "difficulty": None,
+                "cooking_method": None,
+            }
+        ]
+        tags, rt = build_tag_rows_from_classification(rows)
+        assert tags == []
+        assert rt == []
+
+    def test_deduplication_across_recipes(self):
+        from recipebrain.transform import build_tag_rows_from_classification
+
+        rows = [
+            {
+                "id": 1,
+                "dietary_flags": ["vegetarian"],
+                "course": "main",
+                "difficulty": "easy",
+                "cooking_method": None,
+            },
+            {
+                "id": 2,
+                "dietary_flags": ["vegetarian"],
+                "course": "dessert",
+                "difficulty": "easy",
+                "cooking_method": None,
+            },
+        ]
+        tags, rt = build_tag_rows_from_classification(rows)
+
+        # "vegetarian" and "easy" each appear only once in tags
+        keys = [t["key"] for t in tags]
+        assert keys.count("vegetarian") == 1
+        assert keys.count("easy") == 1
+
+        # But recipe_tags has links for both recipes
+        veg_id = next(t["id"] for t in tags if t["key"] == "vegetarian")
+        veg_links = [r for r in rt if r["tag_id"] == veg_id]
+        assert len(veg_links) == 2
+        assert {r["recipe_id"] for r in veg_links} == {1, 2}
+
+    def test_existing_tags_reused(self):
+        from recipebrain.transform import build_tag_rows_from_classification
+
+        existing = {"vegetarian": 50}
+        rows = [
+            {
+                "id": 1,
+                "dietary_flags": ["vegetarian"],
+                "course": "main",
+                "difficulty": None,
+                "cooking_method": None,
+            },
+        ]
+        tags, rt = build_tag_rows_from_classification(rows, existing_tags=existing, next_tag_id=100)
+
+        # "vegetarian" should not be recreated
+        new_keys = {t["key"] for t in tags}
+        assert "vegetarian" not in new_keys
+        assert "main" in new_keys
+
+        # recipe_tag should reference existing ID 50
+        veg_link = next(r for r in rt if r["tag_id"] == 50)
+        assert veg_link["recipe_id"] == 1
+
+    def test_missing_fields_tolerated(self):
+        """Recipes with missing classification keys don't crash."""
+        from recipebrain.transform import build_tag_rows_from_classification
+
+        rows = [{"id": 1}]  # No classification fields at all
+        tags, rt = build_tag_rows_from_classification(rows)
+        assert tags == []
+        assert rt == []
+
+    def test_guarantees_coverage_for_empty_keywords(self):
+        """A recipe with no original_keywords still gets tags from classification."""
+        from recipebrain.transform import (
+            build_tag_rows_from_classification,
+            build_tag_rows_from_keywords,
+        )
+
+        # Simulate a recipe with empty keywords but computed fields
+        recipe_id = 42
+        kw_tags, kw_rt = build_tag_rows_from_keywords([(recipe_id, [])])
+        assert kw_tags == []
+        assert kw_rt == []
+
+        rows = [
+            {
+                "id": recipe_id,
+                "dietary_flags": ["vegan", "quick"],
+                "course": "starter",
+                "difficulty": "easy",
+                "cooking_method": "dämpfen",
+            },
+        ]
+        cls_tags, cls_rt = build_tag_rows_from_classification(rows)
+        assert len(cls_tags) >= 4
+        assert all(r["recipe_id"] == recipe_id for r in cls_rt)

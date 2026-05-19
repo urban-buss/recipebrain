@@ -205,6 +205,68 @@ class TestSwissMeatCutRawText:
 
 
 # ---------------------------------------------------------------------------
+# Tests: oil/fat catalogue entries (issue #056)
+# ---------------------------------------------------------------------------
+
+
+class TestOilFatCatalogueEntries:
+    """Regression tests for issue #056: oil/fat catalogue gap."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Direct display-name matches
+            ("Rapsöl", "rapeseed-oil"),
+            ("Erdnussöl", "peanut-oil"),
+            ("Baumnussöl", "walnut-oil"),
+            ("Kürbiskernöl", "pumpkin-seed-oil"),
+            ("Haselnussöl", "hazelnut-oil"),
+            ("Traubenkernöl", "grapeseed-oil"),
+            ("Bratöl", "cooking-oil"),
+            ("Schweineschmalz", "lard"),
+            # Aliases
+            ("Raps-Öl", "rapeseed-oil"),
+            ("Walnussöl", "walnut-oil"),
+            ("Nussöl", "walnut-oil"),
+            ("Öl", "cooking-oil"),
+            ("Frittieröl", "cooking-oil"),
+            ("Pflanzenöl", "cooking-oil"),
+            ("Speiseöl", "cooking-oil"),
+            ("Schmalz", "lard"),
+            ("Bratbutter", "lard"),
+            # Existing oils still resolve correctly
+            ("Olivenöl", "olive-oil"),
+            ("Sonnenblumenöl", "sunflower-oil"),
+            ("Sesamöl", "sesame-oil"),
+            ("Kokosöl", "coconut-oil"),
+            ("Trüffelöl", "truffle-oil"),
+        ],
+    )
+    def test_oil_fat_resolves(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("2 EL Rapsöl", "rapeseed-oil"),
+            ("3 EL Erdnussöl", "peanut-oil"),
+            ("1 EL Baumnussöl", "walnut-oil"),
+            ("1 EL Kürbiskernöl", "pumpkin-seed-oil"),
+            ("2 EL Haselnussöl", "hazelnut-oil"),
+            ("1 EL Traubenkernöl", "grapeseed-oil"),
+            ("3 EL Bratöl", "cooking-oil"),
+            ("2 EL Öl", "cooking-oil"),
+            ("1 EL Schweineschmalz", "lard"),
+            ("wenig Öl", "cooking-oil"),
+            ("etwas Bratöl", "cooking-oil"),
+        ],
+    )
+    def test_oil_fat_with_quantity(self, raw: str, expected: str) -> None:
+        """Oil/fat entries resolve when preceded by quantity+unit."""
+        assert normalise_ingredient(raw) == expected
+
+
+# ---------------------------------------------------------------------------
 # Tests: get_ingredient
 # ---------------------------------------------------------------------------
 
@@ -614,3 +676,110 @@ class TestFrenchIngredientResolution:
     )
     def test_french_quantity_unit_prefix(self, raw: str, expected: str) -> None:
         assert normalise_ingredient(raw) == expected
+
+
+# ---------------------------------------------------------------------------
+# Tests: high-frequency missing catalogue entries (issue #058)
+# ---------------------------------------------------------------------------
+
+
+class TestHighFrequencyMissingEntries:
+    """Regression tests for issue #058: high-frequency missing catalogue entries."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # Flour/grain variants
+            ("Zopfmehl", "bread-flour"),
+            ("Ruchmehl", "dark-flour"),
+            ("Dinkelmehl", "spelt-flour"),
+            ("Dinkelvollkornmehl", "spelt-flour"),
+            ("Griess", "semolina"),
+            ("Hartweizengriess", "semolina"),
+            ("Weizengriess", "semolina"),
+            # Prepared doughs
+            ("Strudelteig", "strudel-pastry"),
+            # Liquids/stocks
+            ("Kalbsfond", "veal-stock"),
+            ("Kalbsbouillon", "veal-stock"),
+            ("Kalbsbrühe", "veal-stock"),
+            ("Apfelsaft", "apple-juice"),
+            ("Süssmost", "apple-juice"),
+            ("Orangensaft", "orange-juice"),
+            ("Apfelwein", "apple-cider"),
+            ("Cidre", "apple-cider"),
+            # Spice blends/powders
+            ("Lebkuchengewürz", "gingerbread-spice"),
+            ("Fünfgewürzpulver", "five-spice"),
+            ("Fenchelsamen", "fennel-seeds"),
+            ("Korianderpulver", "coriander-powder"),
+            ("Koriander gemahlen", "coriander-powder"),
+            ("Kümmel", "caraway"),
+            ("Kümmelsamen", "caraway"),
+            # Berries/fruit
+            ("Brombeeren", "blackberry"),
+            ("Brombeere", "blackberry"),
+            ("Grapefruit", "grapefruit"),
+            ("Pampelmuse", "grapefruit"),
+            ("Holunderblütensirup", "elderflower-syrup"),
+            ("Holunderblüten-Sirup", "elderflower-syrup"),
+            ("Quitte", "quince"),
+            ("Quitten", "quince"),
+        ],
+    )
+    def test_new_entries_resolve(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            # With quantity+unit prefixes
+            ("300 g Zopfmehl", "bread-flour"),
+            ("500 g Ruchmehl", "dark-flour"),
+            ("200 g Dinkelmehl", "spelt-flour"),
+            ("100 g Griess", "semolina"),
+            ("1 Strudelteig", "strudel-pastry"),
+            ("2 dl Kalbsfond", "veal-stock"),
+            ("1 dl Apfelsaft", "apple-juice"),
+            ("2 dl Orangensaft", "orange-juice"),
+            ("1 dl Cidre", "apple-cider"),
+            ("1 TL Lebkuchengewürz", "gingerbread-spice"),
+            ("1 TL Fünfgewürzpulver", "five-spice"),
+            ("1 TL Fenchelsamen", "fennel-seeds"),
+            ("1 TL Korianderpulver", "coriander-powder"),
+            ("1 TL Kümmel", "caraway"),
+            ("200 g Brombeeren", "blackberry"),
+            ("1 Grapefruit", "grapefruit"),
+            ("2 EL Holunderblütensirup", "elderflower-syrup"),
+            ("2 Quitten", "quince"),
+        ],
+    )
+    def test_new_entries_with_quantity(self, raw: str, expected: str) -> None:
+        """New entries resolve when preceded by quantity+unit."""
+        assert normalise_ingredient(raw) == expected
+
+    def test_caraway_not_cumin(self) -> None:
+        """Kümmel must resolve to caraway, NOT cumin (bug fix)."""
+        assert normalise_ingredient("Kümmel") == "caraway"
+        assert normalise_ingredient("Kreuzkümmel") == "cumin"
+
+    def test_spelt_flour_not_generic_flour(self) -> None:
+        """Dinkelmehl must resolve to spelt-flour, not generic flour."""
+        assert normalise_ingredient("Dinkelmehl") == "spelt-flour"
+
+    def test_existing_entries_still_resolve(self) -> None:
+        """Existing entries must not be broken by changes."""
+        assert normalise_ingredient("Mehl") == "flour"
+        assert normalise_ingredient("Weissmehl") == "flour"
+        assert normalise_ingredient("Blätterteig") == "puff-pastry"
+        assert normalise_ingredient("Kuchenteig") == "shortcrust-pastry"
+        assert normalise_ingredient("Pizzateig") == "pizza-dough"
+        assert normalise_ingredient("Filoteig") == "filo-pastry"
+        assert normalise_ingredient("Paniermehl") == "breadcrumbs"
+        assert normalise_ingredient("Zitronengras") == "lemongrass"
+        assert normalise_ingredient("Galgant") == "galangal"
+        assert normalise_ingredient("Ingwer") == "ginger"
+        assert normalise_ingredient("Koriander") == "coriander"
+        assert normalise_ingredient("Hühnerbouillon") == "stock-chicken"
+        assert normalise_ingredient("Gemüsebouillon") == "stock-vegetable"
+        assert normalise_ingredient("Rindsbouillon") == "stock-beef"
