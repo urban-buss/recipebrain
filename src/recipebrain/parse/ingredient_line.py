@@ -35,7 +35,21 @@ class ParsedIngredient:
 # Optional ingredient markers common in Swiss-German and French recipe text
 _OPTIONAL_MARKERS = re.compile(
     r"(?:^|\b)"
-    r"(?:optional|nach Belieben|evt(?:l)?\.?|evtl\.?|fakultativ|facultatif|selon go[uû]t)"
+    r"(?:"
+    r"optional"
+    r"|nach Belieben"
+    r"|nach Bedarf"
+    r"|evt(?:l)?\.?"
+    r"|ev\."
+    r"|eventuell"
+    r"|fakultativ"
+    r"|facultatif"
+    r"|selon go[uû]t"
+    r"|wer m(?:ag|öchte)"
+    r"|zum Garnieren"
+    r"|zum Dekorieren"
+    r"|zur Dekoration"
+    r")"
     r"(?:\b|(?=[\s:,;.])|$)",
     re.IGNORECASE,
 )

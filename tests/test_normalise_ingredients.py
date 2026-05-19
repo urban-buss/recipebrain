@@ -783,3 +783,216 @@ class TestHighFrequencyMissingEntries:
         assert normalise_ingredient("Hühnerbouillon") == "stock-chicken"
         assert normalise_ingredient("Gemüsebouillon") == "stock-vegetable"
         assert normalise_ingredient("Rindsbouillon") == "stock-beef"
+
+
+# ---------------------------------------------------------------------------
+# Tests: vegan pairing_tags and new entries (issue #067)
+# ---------------------------------------------------------------------------
+
+
+class TestVeganPairingTags:
+    """Verify vegan ingredients carry correct food-group pairing_tags."""
+
+    def test_quinoa_has_vegan_and_grain(self) -> None:
+        entry = get_ingredient("quinoa")
+        assert entry is not None
+        assert "vegan" in entry.pairing_tags
+        assert "grain" in entry.pairing_tags
+
+    def test_coconut_milk_has_vegan(self) -> None:
+        entry = get_ingredient("coconut-milk")
+        assert entry is not None
+        assert "vegan" in entry.pairing_tags
+
+    def test_cocoa_powder_has_vegan(self) -> None:
+        entry = get_ingredient("cocoa-powder")
+        assert entry is not None
+        assert "vegan" in entry.pairing_tags
+
+    def test_agar_agar_entry_exists(self) -> None:
+        entry = get_ingredient("agar-agar")
+        assert entry is not None
+        assert "vegan" in entry.pairing_tags
+
+    def test_agar_agar_alias_resolves(self) -> None:
+        assert normalise_ingredient("Agartine") == "agar-agar"
+        assert normalise_ingredient("Agar-Agar") == "agar-agar"
+
+    def test_almond_flour_entry_exists(self) -> None:
+        entry = get_ingredient("almond-flour")
+        assert entry is not None
+        assert "vegan" in entry.pairing_tags
+        assert "nut" in entry.pairing_tags
+
+    def test_almond_flour_resolves(self) -> None:
+        assert normalise_ingredient("Mandelmehl") == "almond-flour"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Fooby-specific catalogue entries (issue #069)
+# ---------------------------------------------------------------------------
+
+
+class TestFoobySpecificEntries:
+    """Verify Fooby-specific ingredients resolve correctly."""
+
+    def test_baerlauch(self) -> None:
+        assert normalise_ingredient("Bärlauch") == "wild-garlic"
+        assert normalise_ingredient("bärlauch") == "wild-garlic"
+
+    def test_pearl_barley_rollgerste(self) -> None:
+        assert normalise_ingredient("Rollgerste") == "pearl-barley"
+
+    def test_pearl_barley_perlgerste(self) -> None:
+        assert normalise_ingredient("Perlgerste") == "pearl-barley"
+
+    def test_rotweinessig(self) -> None:
+        assert normalise_ingredient("Rotweinessig") == "red-wine-vinegar"
+
+    def test_panko(self) -> None:
+        assert normalise_ingredient("Panko") == "panko"
+
+    def test_flohsamen(self) -> None:
+        assert normalise_ingredient("Flohsamen") == "psyllium-husk"
+        assert normalise_ingredient("Flohsamenschalen") == "psyllium-husk"
+
+    def test_ananas(self) -> None:
+        assert normalise_ingredient("Ananas") == "pineapple"
+
+    def test_knoepflimehl(self) -> None:
+        assert normalise_ingredient("Knöpflimehl") == "knoepfli-flour"
+
+    def test_rosmarinnadeln_resolves_to_rosemary(self) -> None:
+        assert normalise_ingredient("Rosmarinnadeln") == "rosemary"
+        assert normalise_ingredient("Rosmarin") == "rosemary"
+
+    def test_fleischbouillon_already_resolves(self) -> None:
+        assert normalise_ingredient("Fleischbouillon") == "stock-beef"
+
+
+class TestMigustoResolution:
+    """Migusto-specific resolution tests (issue #074)."""
+
+    def test_a_suffix_kichererbsen(self) -> None:
+        """'à 400 g' weight clarification is stripped."""
+        assert normalise_ingredient("1 Dose Kichererbsen à 400 g") == "chickpea"
+
+    def test_a_suffix_with_ca(self) -> None:
+        """'à ca. 150 g' variant is stripped."""
+        assert (
+            normalise_ingredient("Lachsrückenfilet à ca. 150 g") is None
+        )  # no catalogue entry yet
+        # But at least the suffix is stripped internally — test with known item:
+        assert normalise_ingredient("1 Dose Kichererbsen à ca. 400 g") == "chickpea"
+
+    def test_beutel_unit_stripped(self) -> None:
+        """'1 Beutel' container word is stripped as a unit."""
+        assert normalise_ingredient("1 Beutel Vanillezucker") == "vanilla"
+
+    def test_oder_alternative_stripped(self) -> None:
+        """'oder Blattspinat' alternative is stripped."""
+        assert normalise_ingredient("500 g Winterspinat oder Blattspinat") == "spinach"
+
+    def test_comma_z_b_stripped(self) -> None:
+        """Comma + 'z.B.' brand is handled by comma stripping."""
+        assert normalise_ingredient("16 Crackers, z.B. Sfoglie classiche") == "crackers"
+
+    def test_rauchlachs_new_entry(self) -> None:
+        """Rauchlachs resolves to smoked-salmon."""
+        assert normalise_ingredient("200 g Rauchlachs") == "smoked-salmon"
+        assert normalise_ingredient("Rauchlachs") == "smoked-salmon"
+        assert normalise_ingredient("Räucherlachs") == "smoked-salmon"
+
+    def test_gin_new_entry(self) -> None:
+        """Gin resolves."""
+        assert normalise_ingredient("1 dl Gin") == "gin"
+
+    def test_pastrami_new_entry(self) -> None:
+        """Pastrami resolves."""
+        assert normalise_ingredient("100 g Pastrami oder Trutenbrust") == "pastrami"
+
+    def test_tilsiter_new_entry(self) -> None:
+        """Tilsiter resolves."""
+        assert normalise_ingredient("60 g Tilsiter surchoix") == "tilsiter"
+
+    def test_eiswasser_new_entry(self) -> None:
+        """Eiswasser resolves."""
+        assert normalise_ingredient("2 dl Eiswasser") == "ice-water"
+
+    def test_himbeersirup_new_entry(self) -> None:
+        """Himbeersirup resolves."""
+        assert normalise_ingredient("0,5 dl Himbeersirup") == "raspberry-syrup"
+
+    def test_matcha_new_entry(self) -> None:
+        """Matcha resolves."""
+        assert normalise_ingredient("1 TL Matcha-Pulver") == "matcha"
+        assert normalise_ingredient("Matcha") == "matcha"
+
+    def test_pumpernickel_new_entry(self) -> None:
+        """Pumpernickel resolves."""
+        assert normalise_ingredient("Pumpernickel") == "pumpernickel"
+
+    def test_noilly_prat_new_entry(self) -> None:
+        """Noilly Prat (vermouth) resolves."""
+        assert normalise_ingredient("3 EL Noilly Prat") == "vermouth"
+
+
+class TestSchweizerfleischBranding:
+    """Issue #079: 'vom Schweizer [Animal]' branding stripped before matching."""
+
+    def test_vom_schweizer_poulet_with_compound(self) -> None:
+        """When the cut name already includes the animal, branding strip helps."""
+        assert normalise_ingredient("4 Pouletschenkel vom Schweizer Poulet") == "chicken-thigh"
+
+    def test_vom_schweizer_kalb_with_compound(self) -> None:
+        result = normalise_ingredient("12 dünne Kalbsschnitzel vom Schweizer Kalb")
+        assert result == "veal-escalope"
+
+    def test_vom_schweizer_rind(self) -> None:
+        # Branding stripped; "Eckstück" alone may not resolve but shouldn't crash
+        result = normalise_ingredient("400 g Eckstück vom Schweizer Rind")
+        assert result is None  # generic cut name not in catalogue
+
+    def test_vom_schweizer_lamm(self) -> None:
+        # Branding stripped; "Hüftli" alone may not resolve
+        result = normalise_ingredient("4 Hüftli vom Schweizer Lamm")
+        assert result is None  # generic cut name not in catalogue
+
+    def test_branding_stripped_compound_name(self) -> None:
+        """Compound name already containing animal resolves after strip."""
+        assert normalise_ingredient("4 Kalbsschnitzel vom Schweizer Kalb") == "veal-escalope"
+
+
+class TestSchweizerfleischCatalogue:
+    """Issue #079: New catalogue entries for schweizerfleisch-specific items."""
+
+    def test_zitronenthymian(self) -> None:
+        assert normalise_ingredient("1 Zitronenthymian") == "lemon-thyme"
+
+    def test_tomatenpassata(self) -> None:
+        assert normalise_ingredient("4 dl Tomatenpassata") == "tomato-passata"
+
+    def test_kokoswasser(self) -> None:
+        assert normalise_ingredient("2,5 dl Kokoswasser") == "coconut-water"
+
+    def test_sriracha(self) -> None:
+        assert normalise_ingredient("2 EL Sriracha-Sauce") == "sriracha"
+
+    def test_vollrohrzucker(self) -> None:
+        assert normalise_ingredient("80 g Vollrohrzucker") == "raw-cane-sugar"
+
+    def test_rindsfond(self) -> None:
+        assert normalise_ingredient("2 dl kräftiger Rindsfond") == "beef-stock"
+
+    def test_kartoffelstockpulver(self) -> None:
+        assert normalise_ingredient("1 Kartoffelstockpulver") == "instant-mashed-potato"
+
+
+class TestGlattAdjectiveStripping:
+    """Issue #079: 'glatter/glatte' adjective stripped for flat-leaf parsley."""
+
+    def test_glatter_peterli(self) -> None:
+        assert normalise_ingredient("0.5 glatter Peterli") == "parsley"
+
+    def test_glatte_peterli(self) -> None:
+        assert normalise_ingredient("0.5 glatte Peterli") == "parsley"

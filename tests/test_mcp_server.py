@@ -12,6 +12,13 @@ import pytest
 
 from recipebrain.writer import SCHEMAS
 
+try:
+    import PIL  # noqa: F401
+
+    _pil_available = True
+except ImportError:
+    _pil_available = False
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -710,6 +717,7 @@ class TestUpdatePantryMcp:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _pil_available, reason="PIL not installed")
 class TestRefreshSource:
     def test_unknown_source_returns_error(self, output_dir: Path) -> None:
         from recipebrain.mcp_server import refresh_source
@@ -829,6 +837,7 @@ class TestRefreshSource:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _pil_available, reason="PIL not installed")
 class TestAsyncRefresh:
     def test_start_and_complete(self, output_dir: Path) -> None:
         import time

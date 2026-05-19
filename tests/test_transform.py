@@ -19,6 +19,7 @@ from recipebrain.transform import (
     _normalise_difficulty,
     _parse_iso_duration,
     _parse_servings,
+    _parse_time_text,
     build_recipe_images_rows,
     build_recipe_ingredients_rows,
     build_recipe_row,
@@ -137,7 +138,7 @@ class TestBuildRecipeRow:
     def test_deduplicates_prep_cook_when_equal_to_total(self):
         """When prep == cook == totalTime, source duplicated totalTime.
 
-        The transform should use totalTime as total_minutes only, not double it.
+        Active time equals total — no passive cook time.
         """
         raw = RawRecipe(
             title="Jägerschnitzel",
@@ -146,7 +147,7 @@ class TestBuildRecipeRow:
             total_time="PT25M",
         )
         row = build_recipe_row(raw, source_id=1, recipe_id=1)
-        assert row["prep_minutes"] is None
+        assert row["prep_minutes"] == 25
         assert row["cook_minutes"] is None
         assert row["total_minutes"] == 25
 
@@ -167,11 +168,11 @@ class TestBuildRecipeRow:
         """When prep == cook but no totalTime, source duplicated one value.
 
         Betty Bossi commonly puts the same duration into both prepTime and
-        cookTime without providing totalTime. Treat as duplication.
+        cookTime without providing totalTime. Preserve as active prep time.
         """
         raw = RawRecipe(title="Test", prep_time="PT10M", cook_time="PT10M")
         row = build_recipe_row(raw, source_id=1, recipe_id=1)
-        assert row["prep_minutes"] is None
+        assert row["prep_minutes"] == 10
         assert row["cook_minutes"] is None
         assert row["total_minutes"] == 10
 
@@ -185,8 +186,8 @@ class TestBuildRecipeRow:
         assert row["cook_minutes"] == 30
         assert row["total_minutes"] == 30
 
-    def test_equal_prep_cook_with_different_total_uses_total(self):
-        """When prep == cook but totalTime differs, use totalTime as canonical."""
+    def test_equal_prep_cook_with_different_total_derives_cook(self):
+        """When prep == cook but totalTime > prep, derive passive cook time."""
         raw = RawRecipe(
             title="Test",
             prep_time="PT30M",
@@ -194,8 +195,8 @@ class TestBuildRecipeRow:
             total_time="PT45M",
         )
         row = build_recipe_row(raw, source_id=1, recipe_id=1)
-        assert row["prep_minutes"] is None
-        assert row["cook_minutes"] is None
+        assert row["prep_minutes"] == 30
+        assert row["cook_minutes"] == 15
         assert row["total_minutes"] == 45
 
     def test_computed_total_exceeding_int16_clamped(self):
@@ -203,9 +204,148 @@ class TestBuildRecipeRow:
         # prep == cook triggers dedup: total = prep (10080), not sum
         raw = RawRecipe(title="Test", prep_time="PT10080M", cook_time="PT10080M")
         row = build_recipe_row(raw, source_id=1, recipe_id=1)
-        assert row["prep_minutes"] is None
+        assert row["prep_minutes"] == 10_080
         assert row["cook_minutes"] is None
         assert row["total_minutes"] == 10_080  # deduped, not doubled
+
+    def test_equal_prep_cook_with_total_derives_cook_betty_bossi(self):
+        """Real Betty Bossi pattern: prep==cook=active, total includes passive.
+
+        Kartoffelgratin: active 25 min, baking 55 min, total 80 min.
+        """
+        raw = RawRecipe(
+            title="Kartoffelgratin",
+            prep_time="PT25M",
+            cook_time="PT25M",
+            total_time="PT80M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 25
+        assert row["cook_minutes"] == 55
+        assert row["total_minutes"] == 80
+
+    def test_equal_prep_cook_tiramisu_long_passive(self):
+        """Erdbeer-Tiramisu: 20 min active, 240 min chilling, total 260 min."""
+        raw = RawRecipe(
+            title="Erdbeer-Tiramisu",
+            prep_time="PT20M",
+            cook_time="PT20M",
+            total_time="PT260M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 20
+        assert row["cook_minutes"] == 240
+        assert row["total_minutes"] == 260
+
+    def test_equal_prep_cook_ultra_short_pesto(self):
+        """Pistazien-Pesto: 1 min active only, no passive time.
+
+        When prep==cook==total==1, all time is active — cook stays None.
+        """
+        raw = RawRecipe(
+            title="Pistazien-Pesto",
+            prep_time="PT1M",
+            cook_time="PT1M",
+            total_time="PT1M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 1
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 1
+
+    def test_equal_prep_cook_very_long_proofing_pinsa(self):
+        """Glutenfreie Pinsa: 20 min active, 24h proofing + 18 min baking.
+
+        total=1478 min (24h38m), passive=1458 min.
+        """
+        raw = RawRecipe(
+            title="Glutenfreie Pinsa",
+            prep_time="PT20M",
+            cook_time="PT20M",
+            total_time="PT1478M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 20
+        assert row["cook_minutes"] == 1458
+        assert row["total_minutes"] == 1478
+
+    def test_equal_prep_cook_plunder_overnight(self):
+        """Vanille-Plunder: 90 min active, 15h48m passive (proofing+baking).
+
+        total=1038 min (17h18m), passive=948 min.
+        """
+        raw = RawRecipe(
+            title="Vanille-Plunder mit Erdbeeren",
+            prep_time="PT90M",
+            cook_time="PT90M",
+            total_time="PT1038M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 90
+        assert row["cook_minutes"] == 948
+        assert row["total_minutes"] == 1038
+
+    def test_equal_prep_cook_derived_cook_equals_prep(self):
+        """Omeletten: 30 min active, 30 min passive, total 60 min.
+
+        When total is exactly 2x prep, derived cook == prep.
+        """
+        raw = RawRecipe(
+            title="Omeletten",
+            prep_time="PT30M",
+            cook_time="PT30M",
+            total_time="PT60M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 30
+        assert row["cook_minutes"] == 30
+        assert row["total_minutes"] == 60
+
+    def test_equal_prep_cook_only_prep_provided(self):
+        """When only prepTime is set (no cookTime, no totalTime)."""
+        raw = RawRecipe(title="Quick Dip", prep_time="PT5M")
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 5
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 5
+
+    def test_equal_prep_cook_only_cook_provided(self):
+        """When only cookTime is set (no prepTime, no totalTime)."""
+        raw = RawRecipe(title="Slow Cooker Stew", cook_time="PT480M")
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] is None
+        assert row["cook_minutes"] == 480
+        assert row["total_minutes"] == 480
+
+    def test_equal_prep_cook_total_less_than_prep_uses_total(self):
+        """Edge case: malformed data where totalTime < prepTime.
+
+        This shouldn't happen in practice but guards against source bugs.
+        When total <= prep, we can't derive meaningful cook time.
+        """
+        raw = RawRecipe(
+            title="Malformed",
+            prep_time="PT30M",
+            cook_time="PT30M",
+            total_time="PT20M",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 30
+        assert row["cook_minutes"] is None
+        assert row["total_minutes"] == 20
+
+    def test_equal_prep_cook_with_iso_hours_format(self):
+        """ISO 8601 duration with hours: PT1H30M for 90 minutes."""
+        raw = RawRecipe(
+            title="Complex Bake",
+            prep_time="PT1H30M",
+            cook_time="PT1H30M",
+            total_time="PT3H",
+        )
+        row = build_recipe_row(raw, source_id=1, recipe_id=1)
+        assert row["prep_minutes"] == 90
+        assert row["cook_minutes"] == 90
+        assert row["total_minutes"] == 180
 
 
 class TestBuildRecipeSteps:
@@ -396,6 +536,43 @@ class TestParseIsoDuration:
     )
     def test_parse(self, iso, expected):
         assert _parse_iso_duration(iso) == expected
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("45 min", 45),
+            ("1 h 35 min", 95),
+            ("2 Std 10 min", 130),
+            ("2 h", 120),
+            ("ca. 30 Min.", 30),
+            ("15 Minuten", 15),
+            ("1 Stunde 20 Minuten", 80),
+        ],
+    )
+    def test_parse_plain_text_fallback(self, text, expected):
+        """_parse_iso_duration falls back to plain-text parsing."""
+        assert _parse_iso_duration(text) == expected
+
+
+class TestParseTimeText:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("45 min", 45),
+            ("1 h 35 min", 95),
+            ("2 Std 10 min", 130),
+            ("2 h", 120),
+            ("ca. 30 Min.", 30),
+            ("15 Minuten", 15),
+            ("1 Stunde 20 Minuten", 80),
+            ("3h", 180),
+            ("", None),
+            ("   ", None),
+            ("no numbers here", None),
+        ],
+    )
+    def test_parse(self, text, expected):
+        assert _parse_time_text(text) == expected
 
 
 class TestClampInt16:
@@ -645,6 +822,26 @@ class TestNormaliseCuisine:
             ("", None),
             ("milchprodukte, käse, eier", None),
             ("familien-gerichte, geflügel, gemüse", None),
+            # German synonym mapping
+            ("schweizer küche", "swiss"),
+            ("Asiatische Küche", "asian"),
+            ("mediterrane küche", "mediterranean"),
+            ("italienische küche", "italian"),
+            ("indisch", "indian"),
+            ("spanisch", "spanish"),
+            ("japanisch", "japanese"),
+            ("russisch", "russian"),
+            ("ungarisch", "hungarian"),
+            ("lateinamerikanisch", "latin"),
+            ("südamerikanisch", "latin"),
+            # Blocklisted non-cuisine keywords
+            ("Schnelle Küche", None),
+            ("schnelle küche", None),
+            ("Familienküche", None),
+            ("raclette", None),
+            ("Zmittag", None),
+            ("Root", None),
+            ("root", None),
         ],
     )
     def test_normalise(self, raw, expected):
@@ -656,6 +853,7 @@ class TestInferCuisine:
 
     def test_explicit_value_takes_priority(self):
         assert _infer_cuisine("Italian", "Bircher-Müesli", []) == "italian"
+        assert _infer_cuisine("Italian", "Gulasch mit Paprika", []) == "italian"
 
     @pytest.mark.parametrize(
         ("title", "expected"),
@@ -711,6 +909,15 @@ class TestInferCuisine:
             # American
             ("Cheeseburger", "american"),
             ("Mac and Cheese", "american"),
+            # Russian
+            ("Bœuf Stroganoff", "russian"),
+            ("Borschtsch mit Sauerrahm", "russian"),
+            # Hungarian
+            ("Szegediner Gulasch mit Schweinefleisch", "hungarian"),
+            ("Rindsgulasch mit Nockerl", "hungarian"),
+            # Latin American
+            ("Südamerika-Rindfleisch mit Chimichurri", "latin"),
+            ("Ceviche vom Lachs", "latin"),
             # No match
             ("Gemüseauflauf", None),
             ("Pouletbrust mit Reis", None),
@@ -1205,25 +1412,106 @@ class TestBuildTagRowsFromKeywords:
 
         tags, _ = build_tag_rows_from_keywords([(1, ["vegetarisch", "vegan", "glutenfrei"])])
         facets = {t["key"]: t["facet"] for t in tags}
-        assert facets["vegetarisch"] == "dietary"
+        # German dietary keywords map to canonical English keys
+        assert facets["vegetarian"] == "dietary"
         assert facets["vegan"] == "dietary"
-        assert facets["glutenfrei"] == "dietary"
+        assert facets["gluten-free"] == "dietary"
+
+    def test_laktosefrei_maps_to_dairy_free(self):
+        """German 'Laktosefrei' keyword maps to canonical 'dairy-free' tag."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords([(1, ["Laktosefrei"])], {}, 1)
+        assert len(tags) == 1
+        assert tags[0]["key"] == "dairy-free"
+        assert tags[0]["facet"] == "dietary"
+
+    def test_laktosefrei_dedup_with_existing_dairy_free(self):
+        """'Laktosefrei' reuses existing 'dairy-free' tag without creating duplicate."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        existing = {"dairy-free": 5}
+        tags, rt = build_tag_rows_from_keywords([(1, ["Laktosefrei"])], existing, 10)
+        assert tags == []  # no new tag created
+        assert rt == [{"recipe_id": 1, "tag_id": 5}]
 
     def test_expanded_facet_map_method(self):
         from recipebrain.transform import build_tag_rows_from_keywords
 
         tags, _ = build_tag_rows_from_keywords([(1, ["grillieren", "backen"])])
         facets = {t["key"]: t["facet"] for t in tags}
-        assert facets["grillieren"] == "method"
-        assert facets["backen"] == "method"
+        # German method keywords map to canonical English keys
+        assert facets["grilled"] == "method"
+        assert facets["baked"] == "method"
 
     def test_expanded_facet_map_course(self):
         from recipebrain.transform import build_tag_rows_from_keywords
 
         tags, _ = build_tag_rows_from_keywords([(1, ["dessert", "vorspeise"])])
         facets = {t["key"]: t["facet"] for t in tags}
+        # "dessert" maps to itself, "vorspeise" maps to "starter"
         assert facets["dessert"] == "course"
-        assert facets["vorspeise"] == "course"
+        assert facets["starter"] == "course"
+
+    def test_german_keyword_maps_to_canonical_tag_existing(self):
+        """German keyword links to existing canonical tag without creating new."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        existing = {"main": 10}
+        tags, rt = build_tag_rows_from_keywords([(1, ["Hauptgericht"])], existing_tags=existing)
+        assert tags == []  # no new tag created
+        assert rt == [{"recipe_id": 1, "tag_id": 10}]
+
+    def test_german_keyword_creates_canonical_tag(self):
+        """German keyword creates tag with canonical English key."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords([(1, ["Hauptgericht"])])
+        assert len(tags) == 1
+        assert tags[0]["key"] == "main"
+        assert tags[0]["display"] == "main"
+        assert tags[0]["facet"] == "course"
+        assert rt == [{"recipe_id": 1, "tag_id": tags[0]["id"]}]
+
+    def test_blocklisted_keyword_suppressed(self):
+        """Noise keywords in blocklist produce no tags or links."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords([(1, ["Zmittag", "Sommer"])])
+        assert tags == []
+        assert rt == []
+
+    def test_non_blocklisted_free_keyword_still_works(self):
+        """Keywords not in blocklist or canonical map get free facet."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords([(1, ["Party"])])
+        assert tags[0]["key"] == "party"
+        assert tags[0]["facet"] == "occasion"
+        assert len(rt) == 1
+
+    def test_canonical_dedup_across_recipes(self):
+        """Multiple recipes with same German keyword share canonical tag."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, rt = build_tag_rows_from_keywords(
+            [
+                (1, ["Hauptgericht"]),
+                (2, ["Hauptgericht"]),
+            ]
+        )
+        assert len(tags) == 1
+        assert tags[0]["key"] == "main"
+        assert len(rt) == 2
+        assert rt[0]["tag_id"] == rt[1]["tag_id"]
+
+    def test_english_keyword_unchanged(self):
+        """English keywords not in canonical map pass through as-is."""
+        from recipebrain.transform import build_tag_rows_from_keywords
+
+        tags, _ = build_tag_rows_from_keywords([(1, ["vegetarian"])])
+        # "vegetarian" is already the canonical key
+        assert tags[0]["key"] == "vegetarian"
 
 
 # ---------------------------------------------------------------------------

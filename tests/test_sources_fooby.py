@@ -11,6 +11,7 @@ from recipebrain.settings import ScrapingConfig, Settings, SourceConfig
 from recipebrain.sources.fooby import (
     FoobyAdapter,
     _detect_language,
+    _extract_cuisine_from_tags,
     _is_recipe_url,
     _parse_sitemap_urls,
 )
@@ -174,7 +175,7 @@ class TestFoobyFetch:
 
         recipe = adapter.fetch("https://fooby.ch/de/rezepte/pad-thai-456")
 
-        assert recipe.cuisine == "Thai"
+        assert recipe.cuisine == "thai"
 
     def test_fetch_does_not_override_jsonld_cuisine(self):
         # JSON-LD provides recipeCuisine, HTML also has cuisine tag — JSON-LD wins
@@ -227,3 +228,138 @@ class TestHelpers:
     )
     def test_detect_language(self, url, expected):
         assert _detect_language(url) == expected
+
+
+class TestExtractCuisineFromTags:
+    """Tests for _extract_cuisine_from_tags with the _FOOBY_CUISINE_MAP."""
+
+    def test_german_single_word_maps_to_english(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<div class="recipe-tags"><a>Asiatisch</a></div>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == "asian"
+
+    def test_german_multi_word_maps_to_english(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<meta name="keywords" content="Schweizer Küche,Hauptgericht"/>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == "swiss"
+
+    def test_non_cuisine_keyword_blocked(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<meta name="keywords" content="Schnelle Küche,Hauptgericht"/>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == ""
+
+    def test_raclette_not_returned_as_cuisine(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<meta name="keywords" content="Raclette,Hauptgericht"/>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == ""
+
+    def test_italian_via_meta_keywords(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<meta name="keywords" content="Pasta,Italienische Küche"/>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == "italian"
+
+    def test_english_value_passes_through(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<div class="recipe-tags"><a>Mediterranean</a></div>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == "mediterranean"
+
+    def test_no_cuisine_keywords_returns_empty(self):
+        from selectolax.parser import HTMLParser
+
+        html = '<meta name="keywords" content="Dessert,Vegetarisch"/>'
+        assert _extract_cuisine_from_tags(HTMLParser(html)) == ""
+
+
+# ---------------------------------------------------------------------------
+# Tests: brand prefix stripping (issue #068)
+# ---------------------------------------------------------------------------
+
+
+class TestStripBrandPrefix:
+    """_strip_brand_prefix removes Coop retail brand prefixes."""
+
+    def test_fine_food_prefix(self):
+        from recipebrain.sources.fooby import _strip_brand_prefix
+
+        assert _strip_brand_prefix("Fine Food Manchego Gran Reserva") == "Manchego Gran Reserva"
+
+    def test_fine_food_sherry(self):
+        from recipebrain.sources.fooby import _strip_brand_prefix
+
+        assert _strip_brand_prefix("Fine Food Sherry-Weinessig") == "Sherry-Weinessig"
+
+    def test_naturaplan_prefix(self):
+        from recipebrain.sources.fooby import _strip_brand_prefix
+
+        assert _strip_brand_prefix("Naturaplan Joghurt natur") == "Joghurt natur"
+
+    def test_betty_bossi_prefix(self):
+        from recipebrain.sources.fooby import _strip_brand_prefix
+
+        assert _strip_brand_prefix("Betty Bossi Pasta") == "Pasta"
+
+    def test_no_prefix_unchanged(self):
+        from recipebrain.sources.fooby import _strip_brand_prefix
+
+        assert _strip_brand_prefix("Butter") == "Butter"
+        assert _strip_brand_prefix("200 g Mehl") == "200 g Mehl"
+
+    def test_prefix_case_sensitive(self):
+        from recipebrain.sources.fooby import _strip_brand_prefix
+
+        # Only strips when case matches exactly
+        assert _strip_brand_prefix("fine food Manchego") == "fine food Manchego"
+
+
+# ---------------------------------------------------------------------------
+# Tests: equipment filtering (issue #070)
+# ---------------------------------------------------------------------------
+
+
+class TestIsEquipment:
+    """_is_equipment detects cooking equipment in ingredient text."""
+
+    def test_holzspiesschen(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        assert _is_equipment("Holzspiesschen") is True
+        assert _is_equipment("4 Holzspiesschen") is True
+
+    def test_alu_grillschalen(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        assert _is_equipment("Alu-Grillschalen") is True
+
+    def test_grillholzbrettchen(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        assert _is_equipment("1 Zedern Grillholzbrettchen") is True
+
+    def test_kuechenschnur(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        assert _is_equipment("Küchenschnur") is True
+
+    def test_backpapier(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        assert _is_equipment("Backpapier") is True
+
+    def test_food_not_filtered(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        assert _is_equipment("200 g Mehl") is False
+        assert _is_equipment("Butter") is False
+        assert _is_equipment("Spinat") is False
+
+    def test_holundersaft_not_filtered(self):
+        from recipebrain.sources.fooby import _is_equipment
+
+        # "Holunder" must not match "grillholz" — substring match is targeted
+        assert _is_equipment("Holundersaft") is False

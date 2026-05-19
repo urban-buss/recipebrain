@@ -7,9 +7,11 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from PIL import Image
 
-from recipebrain.images import (
+PIL = pytest.importorskip("PIL")
+from PIL import Image  # noqa: E402
+
+from recipebrain.images import (  # noqa: E402
     _extension_from_url,
     _image_filename,
     _output_extension,
@@ -19,7 +21,7 @@ from recipebrain.images import (
     download_recipe_images,
     images_dir,
 )
-from recipebrain.settings import ImagesConfig
+from recipebrain.settings import ImagesConfig  # noqa: E402
 
 
 class TestUrlHash:

@@ -163,6 +163,16 @@ class TestOptionalDetection:
             ("evtl. 1 TL Zucker", "Zucker", True),
             ("1 Prise Salz, fakultativ", "Salz", True),
             ("nach Belieben: Schnittlauch", "Schnittlauch", True),
+            # Issue #064: expanded German optional markers
+            ("Pfeffer nach Bedarf", "Pfeffer", True),
+            ("nach Bedarf Salz", "Salz", True),
+            ("ev. einige Tropfen Tabasco", "einige Tropfen Tabasco", True),
+            ("eventuell 1 TL Senf", "Senf", True),
+            ("zum Garnieren frische Kräuter", "frische Kräuter", True),
+            ("Minze, zum Dekorieren", "Minze", True),
+            ("Puderzucker, zur Dekoration", "Puderzucker", True),
+            ("wer mag: Chili", "Chili", True),
+            ("wer möchte: 1 EL Crème fraîche", "Crème fraîche", True),
         ],
     )
     def test_detects_optional_markers(self, line, expected_ingredient, expected_optional):
@@ -202,6 +212,28 @@ class TestOptionalDetection:
         assert result.ingredient == "Honig"
         assert result.quantity == 1.0
         assert result.unit == "EL"
+
+    def test_ev_dot_marker_stripped(self):
+        result = parse_ingredient_line("ev. einige Tropfen Tabasco")
+        assert result.optional is True
+        assert "ev." not in result.ingredient
+
+    def test_nach_bedarf_nulls_quantity(self):
+        result = parse_ingredient_line("Pfeffer nach Bedarf")
+        assert result.optional is True
+        assert result.quantity is None
+        assert result.unit is None
+
+    def test_zum_garnieren_stripped(self):
+        result = parse_ingredient_line("zum Garnieren frische Kräuter")
+        assert result.optional is True
+        assert "Garnieren" not in result.ingredient
+
+    def test_nach_belieben_puderzucker(self):
+        result = parse_ingredient_line("nach Belieben Puderzucker")
+        assert result.optional is True
+        assert result.ingredient == "Puderzucker"
+        assert result.quantity is None
 
 
 class TestFrenchUnits:

@@ -8,7 +8,11 @@ from datetime import UTC, datetime
 from typing import ClassVar
 from unittest.mock import MagicMock
 
-from recipebrain.etl import (
+import pytest
+
+pytest.importorskip("PIL")
+
+from recipebrain.etl import (  # noqa: E402
     _DEFAULT_BATCH_SIZE,
     EtlResult,
     _detect_interrupted_runs,
