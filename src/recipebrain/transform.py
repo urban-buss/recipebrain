@@ -14,9 +14,11 @@ Key transformations:
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import unicodedata
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from recipebrain.computed import (
     compute_cooking_method,
@@ -29,6 +31,8 @@ from recipebrain.computed import (
 from recipebrain.normalise.ingredients import get_ingredient_id
 from recipebrain.parse.ingredient_line import parse_ingredient_line
 from recipebrain.sources.base import RawIngredientGroup, RawRecipe
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Classification normalisation
@@ -273,7 +277,9 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"r[öo]sti|fondue|raclette|bircher|z[üu]ri|berner|[äa]lpler"
-            r"|zopf|älplermagronen|capuns|cholera|pizokel",
+            r"|zopf|älplermagronen|capuns|cholera|pizokel"
+            r"|bündner|appenzeller|emmentaler|gruyère|vacherin"
+            r"|geschnetzeltes|züpfe|weggen|basler|luzerner",
             re.IGNORECASE,
         ),
         "swiss",
@@ -281,10 +287,14 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     # Italian
     (
         re.compile(
-            r"pasta|risotto|pizza|tiramisu|panna\s*cotta|carbonara"
+            r"pasta|spaghetti|risotto|pizza|tiramisu|panna\s*cotta|carbonara"
             r"|bolognese|lasagne|gnocchi|tortellini|bruschetta|focaccia"
             r"|minestrone|ossobuco|parmigiana|saltimbocca|vitello\s*tonnato"
-            r"|ciabatta|polenta|antipast[io]|arancin[ie]|calzone",
+            r"|ciabatta|polenta|antipast[io]|arancin[ie]|calzone"
+            r"|pesto|mascarpone|amaretti|panettone|prosciutto|pancetta"
+            r"|tagliatelle|penne|rigatoni|ravioli|agnolotti|cannelloni"
+            r"|arrabiata|arrabbiata|aglio\s*e?\s*olio|cacio\s*e\s*pepe"
+            r"|tagliata|carpaccio|bresaola|caprese|tramezzini",
             re.IGNORECASE,
         ),
         "italian",
@@ -302,7 +312,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"\bsushi\b|ramen|tempura|teriyaki|miso(?:\s*suppe)?"
-            r"|gyoza|udon|soba|onigiri|okonomiyaki|yakitori",
+            r"|gyoza|udon|soba|onigiri|okonomiyaki|yakitori"
+            r"|edamame|wasabi|ponzu|dashi",
             re.IGNORECASE,
         ),
         "japanese",
@@ -311,7 +322,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"wonton|dim\s*sum|kung\s*pao|sweet\s*(?:and|&)\s*sour"
-            r"|chow\s*mein|fried\s*rice|pek?ing|szechuan|mapo\s*tofu",
+            r"|chow\s*mein|fried\s*rice|pek?ing|szechuan|mapo\s*tofu"
+            r"|chinesisch|wan\s*tan",
             re.IGNORECASE,
         ),
         "chinese",
@@ -319,7 +331,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     # Korean
     (
         re.compile(
-            r"kimchi|bibimbap|bulgogi|korean|japchae|tteokbokki",
+            r"kimchi|bibimbap|bulgogi|korean|japchae|tteokbokki"
+            r"|koreanisch|gochujang",
             re.IGNORECASE,
         ),
         "korean",
@@ -327,7 +340,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     # Vietnamese
     (
         re.compile(
-            r"\bpho\b|b[áa]nh\s*m[ìi]|vietnamese|summer\s*roll[s]?",
+            r"\bpho\b|b[áa]nh\s*m[ìi]|vietnamese|summer\s*roll[s]?"
+            r"|vietnamesisch",
             re.IGNORECASE,
         ),
         "vietnamese",
@@ -336,7 +350,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"\bwok\b|stir[\s-]*fry|asia(?:tisch)?|nasi\s*goreng"
-            r"|satay|sat[ée]\b|curry(?!wurst)",
+            r"|satay|sat[ée]\b|curry(?!wurst)"
+            r"|glasnudeln|reisnudeln|fr[üu]hlingsroll",
             re.IGNORECASE,
         ),
         "asian",
@@ -345,7 +360,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"\bindisch\b|tandoori|naan\b|chapati|dhal|dal\b"
-            r"|masala|tikka|samosa|biryani|paneer|vindaloo|korma",
+            r"|masala|tikka|samosa|biryani|paneer|vindaloo|korma"
+            r"|pakora|chutney|raita|lassi",
             re.IGNORECASE,
         ),
         "indian",
@@ -354,7 +370,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"\btaco[s]?\b|burrito|quesadilla|enchilada|fajita"
-            r"|guacamole|mexikan|nacho[s]?\b|chili\s*con\s*carne",
+            r"|guacamole|mexikan|nacho[s]?\b|chili\s*con\s*carne"
+            r"|tortilla(?!\s*chip)|jalape[ñn]o",
             re.IGNORECASE,
         ),
         "mexican",
@@ -362,9 +379,11 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     # French
     (
         re.compile(
-            r"quiche|gratin|cr[êe]pe[s]?\b|ratatouille|bouillabaisse"
+            r"quiche|cr[êe]pe[s]?\b|ratatouille|bouillabaisse"
             r"|cr[oô]quer?|flambée?|béchamel|proven[çc]al"
-            r"|coq\s*au\s*vin|blanquette|boeuf\s*bourguignon",
+            r"|coq\s*au\s*vin|blanquette|boeuf\s*bourguignon"
+            r"|tarte\s*tatin|clafoutis|madeleines|brioche|croissant"
+            r"|gratin\s*dauphinois|confit|cassoulet|ni[çc]oise",
             re.IGNORECASE,
         ),
         "french",
@@ -372,7 +391,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     # Greek
     (
         re.compile(
-            r"tzatziki|gyros|moussaka|souvlaki|griechisch",
+            r"tzatziki|gyros|moussaka|souvlaki|griechisch"
+            r"|halloumi|feta(?:\s*salat|\s*k[äa]se)",
             re.IGNORECASE,
         ),
         "greek",
@@ -381,7 +401,8 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(
             r"falafel|hummus|taboul[ée]|shawarma|kebab|lahmacun"
-            r"|orientalisch|couscous|harissa|baharat|za.atar",
+            r"|orientalisch|couscous|harissa|baharat|za.atar"
+            r"|fattoush|meze|börek|kibbeh",
             re.IGNORECASE,
         ),
         "middle-eastern",
@@ -406,15 +427,214 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# URL-based cuisine signals — match slug segments in source URLs.
+# Checked only when title/keyword scan yields no result.
+# ---------------------------------------------------------------------------
+
+_CUISINE_URL_SIGNALS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"schweiz|swiss|suisse", re.IGNORECASE), "swiss"),
+    (re.compile(r"italien|italian|pasta|risotto|pizza", re.IGNORECASE), "italian"),
+    (re.compile(r"\bthai\b", re.IGNORECASE), "thai"),
+    (re.compile(r"japan|nippon|sushi|ramen", re.IGNORECASE), "japanese"),
+    (re.compile(r"chines|china", re.IGNORECASE), "chinese"),
+    (re.compile(r"korea", re.IGNORECASE), "korean"),
+    (re.compile(r"vietnam", re.IGNORECASE), "vietnamese"),
+    (re.compile(r"asia", re.IGNORECASE), "asian"),
+    (re.compile(r"indisch|indian|indien", re.IGNORECASE), "indian"),
+    (re.compile(r"mexik|mexican|mexic", re.IGNORECASE), "mexican"),
+    (re.compile(r"franz[öo]s|french|fran[çc]ais", re.IGNORECASE), "french"),
+    (re.compile(r"griech|greek|grec", re.IGNORECASE), "greek"),
+    (re.compile(r"orient|nahostlich|middle.east", re.IGNORECASE), "middle-eastern"),
+    (re.compile(r"mediterran", re.IGNORECASE), "mediterranean"),
+    (re.compile(r"amerikan|american", re.IGNORECASE), "american"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Ingredient-combination cuisine signals.
+# Each entry: (set of keywords to match in raw_text, minimum required matches, cuisine)
+# These are checked against the collection of ingredient raw_text lines.
+# ---------------------------------------------------------------------------
+
+_CUISINE_INGREDIENT_COMBOS: list[tuple[list[str], int, str]] = [
+    # Asian (need at least 2 of these)
+    (
+        [
+            "sojasauce",
+            "sojasosse",
+            "soja-sauce",
+            "soja sauce",
+            "ingwer",
+            "sesam",
+            "sesamöl",
+            "reisessig",
+            "reiswein",
+            "kokosmilch",
+            "kokoscreme",
+            "fischsauce",
+            "fischsosse",
+            "zitronengras",
+            "koriander frisch",
+            "limetten",
+            "sriracha",
+            "sambal",
+            "mirin",
+            "sake",
+        ],
+        2,
+        "asian",
+    ),
+    # Italian (need at least 2 of these)
+    (
+        [
+            "mozzarella",
+            "parmesan",
+            "parmigiano",
+            "pecorino",
+            "ricotta",
+            "basilikum",
+            "oregano",
+            "mascarpone",
+            "pancetta",
+            "prosciutto",
+            "passata",
+            "pelati",
+            "san marzano",
+        ],
+        2,
+        "italian",
+    ),
+    # Indian (need at least 2 of these)
+    (
+        [
+            "kurkuma",
+            "kreuzkümmel",
+            "garam masala",
+            "koriander gemahlen",
+            "currypulver",
+            "curry-pulver",
+            "kardamom",
+            "ghee",
+            "joghurt nature",
+            "kokosmilch",
+            "linsen",
+        ],
+        2,
+        "indian",
+    ),
+    # Middle Eastern (need at least 2 of these)
+    (
+        [
+            "kichererbsen",
+            "tahini",
+            "tahina",
+            "granatapfel",
+            "sumach",
+            "za'atar",
+            "zaatar",
+            "minze",
+            "bulgur",
+            "couscous",
+            "harissa",
+            "kreuzkümmel",
+        ],
+        2,
+        "middle-eastern",
+    ),
+    # Mexican (need at least 2 of these)
+    (
+        [
+            "kidneybohnen",
+            "schwarze bohnen",
+            "jalapeño",
+            "jalapeno",
+            "mais",
+            "avocado",
+            "limetten",
+            "koriander frisch",
+            "tortilla",
+            "salsa",
+            "chipotle",
+        ],
+        2,
+        "mexican",
+    ),
+]
+
+
+def _infer_cuisine_from_url(source_url: str) -> str | None:
+    """Extract cuisine hint from URL path slug.
+
+    Many Swiss recipe sites embed cuisine keywords in the URL slug
+    (e.g. /rezepte/rezept/thai-curry-99998/).
+
+    Examples:
+        >>> _infer_cuisine_from_url("https://www.bettybossi.ch/de/rezepte/rezept/thai-curry-99998/")
+        'thai'
+        >>> _infer_cuisine_from_url("https://fooby.ch/de/rezepte/asiatische-gemuesepfanne-123")
+        'asian'
+        >>> _infer_cuisine_from_url("https://www.bettybossi.ch/de/rezepte/rezept/kartoffelgratin-10002010/")
+    """
+    if not source_url:
+        return None
+    # Extract the last meaningful path segment (the slug)
+    path = urlparse(source_url).path.rstrip("/")
+    slug = path.rsplit("/", 1)[-1] if "/" in path else path
+    # Replace hyphens with spaces for better matching
+    slug_text = slug.replace("-", " ")
+
+    for pattern, cuisine in _CUISINE_URL_SIGNALS:
+        if pattern.search(slug_text):
+            return cuisine
+    return None
+
+
+def _infer_cuisine_from_ingredients(ingredient_rows: list[dict]) -> str | None:
+    """Infer cuisine from ingredient combination patterns.
+
+    Checks ingredient raw_text lines against known cuisine-specific ingredient
+    combinations. Requires multiple matching ingredients to reduce false positives.
+
+    Examples:
+        >>> _infer_cuisine_from_ingredients([
+        ...     {"raw_text": "2 EL Sojasauce"},
+        ...     {"raw_text": "1 Stück Ingwer"},
+        ...     {"raw_text": "1 EL Sesamöl"},
+        ... ])
+        'asian'
+        >>> _infer_cuisine_from_ingredients([{"raw_text": "200 g Butter"}])
+    """
+    if not ingredient_rows:
+        return None
+
+    # Build a single lowercased text from all ingredient raw_text
+    all_text = " ".join(row.get("raw_text", "").lower() for row in ingredient_rows)
+
+    for keywords, min_matches, cuisine in _CUISINE_INGREDIENT_COMBOS:
+        matches = sum(1 for kw in keywords if kw in all_text)
+        if matches >= min_matches:
+            return cuisine
+
+    return None
+
+
 def _infer_cuisine(
     raw_cuisine: str,
     title: str,
     keywords: list[str],
+    *,
+    source_url: str = "",
+    ingredient_rows: list[dict] | None = None,
 ) -> str | None:
-    """Resolve cuisine from explicit value or infer from title/keywords.
+    """Resolve cuisine from explicit value or infer via layered heuristics.
 
-    If raw_cuisine is provided and valid, use it directly.
-    Otherwise scan the recipe title and keywords for cuisine signal patterns.
+    Inference priority:
+    1. Explicit raw_cuisine value (if valid)
+    2. Title text pattern matching
+    3. Keywords pattern matching
+    4. Source URL slug pattern matching
+    5. Ingredient combination matching
 
     Examples:
         >>> _infer_cuisine("Swiss", "Anything", [])
@@ -424,21 +644,34 @@ def _infer_cuisine(
         >>> _infer_cuisine("", "Pad Thai mit Poulet", [])
         'thai'
         >>> _infer_cuisine("", "Gemüseauflauf", [])
+        >>> _infer_cuisine("", "Gemüsepfanne", [], source_url="https://example.ch/rezepte/asiatisch-gemuese-123/")
+        'asian'
     """
     explicit = _normalise_cuisine(raw_cuisine)
     if explicit:
         return explicit
 
-    # Scan title first (strongest signal)
+    # Layer 1: Scan title (strongest signal)
     for pattern, cuisine in _CUISINE_SIGNALS:
         if pattern.search(title):
             return cuisine
 
-    # Scan keywords
+    # Layer 1: Scan keywords
     joined_keywords = " ".join(keywords)
     for pattern, cuisine in _CUISINE_SIGNALS:
         if pattern.search(joined_keywords):
             return cuisine
+
+    # Layer 3: URL slug mining
+    url_cuisine = _infer_cuisine_from_url(source_url)
+    if url_cuisine:
+        return url_cuisine
+
+    # Layer 2: Ingredient-based inference
+    if ingredient_rows:
+        ing_cuisine = _infer_cuisine_from_ingredients(ingredient_rows)
+        if ing_cuisine:
+            return ing_cuisine
 
     return None
 
@@ -524,6 +757,7 @@ def extract_classification(data: dict | RawRecipe) -> dict:
             "keywords": data.keywords,
             "total_minutes": None,
             "title": data.title,
+            "source_url": data.source_url,
         }
     category = data.get("recipeCategory") or data.get("category", "")
     cuisine_raw = data.get("recipeCuisine") or data.get("cuisine", "")
@@ -531,9 +765,10 @@ def extract_classification(data: dict | RawRecipe) -> dict:
     keywords = data.get("keywords") or []
     total_minutes = data.get("total_minutes")
     title = data.get("title", "")
+    source_url = data.get("source_url", "")
 
     course = _infer_course(category, title, keywords)
-    cuisine = _infer_cuisine(cuisine_raw, title, keywords)
+    cuisine = _infer_cuisine(cuisine_raw, title, keywords, source_url=source_url)
     difficulty = _infer_difficulty(difficulty_raw, total_minutes)
 
     # Fallback: scan keywords for difficulty when not resolved above
@@ -578,19 +813,13 @@ def build_recipe_row(
     cook = _parse_iso_duration(raw.cook_time)
     raw_total = _parse_iso_duration(raw.total_time)
 
-    # Detect source duplication: when prep == cook == totalTime, the source
-    # copied totalTime into both prep and cook fields (common pattern on
-    # Betty Bossi and similar sites). Correct by using totalTime as the
-    # canonical total and nulling out the duplicated prep/cook.
+    # Detect source duplication: when prep == cook, the source duplicated a
+    # single duration into both fields (common pattern on Betty Bossi and
+    # similar sites). Correct by using the value as total_minutes only and
+    # nulling out the duplicated prep/cook.
     total = None
-    if (
-        prep is not None
-        and cook is not None
-        and prep == cook
-        and raw_total is not None
-        and raw_total == prep
-    ):
-        total = raw_total
+    if prep is not None and cook is not None and prep == cook:
+        total = raw_total if raw_total is not None else prep
         prep = None
         cook = None
     elif prep is not None and cook is not None:
@@ -602,11 +831,22 @@ def build_recipe_row(
     elif raw_total is not None:
         total = raw_total
 
+    # Belt-and-suspenders: clamp any value exceeding int16 max to None.
+    prep = _clamp_int16(prep)
+    cook = _clamp_int16(cook)
+    total = _clamp_int16(total)
+
     now = datetime.now(UTC)
 
     keywords = raw.keywords or []
     course = _infer_course(raw.category, raw.title, keywords)
-    cuisine = _infer_cuisine(raw.cuisine, raw.title, keywords)
+    cuisine = _infer_cuisine(
+        raw.cuisine,
+        raw.title,
+        keywords,
+        source_url=raw.source_url,
+        ingredient_rows=ingredient_rows,
+    )
     difficulty = _infer_difficulty(raw.difficulty, total)
     ing_rows = ingredient_rows or []
 
@@ -781,6 +1021,17 @@ _ISO_DURATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+_MAX_RECIPE_MINUTES = 10_080  # 7 days — generous upper bound
+
+_INT16_MAX = 32_767
+
+
+def _clamp_int16(value: int | None) -> int | None:
+    """Return None if value exceeds int16 max, otherwise pass through."""
+    if value is not None and value > _INT16_MAX:
+        return None
+    return value
+
 
 def _parse_iso_duration(iso: str) -> int | None:
     """Parse an ISO 8601 duration string into total minutes.
@@ -807,6 +1058,9 @@ def _parse_iso_duration(iso: str) -> int | None:
     seconds = int(match.group(3) or 0)
 
     total = hours * 60 + minutes + (1 if seconds >= 30 else 0)
+    if total > _MAX_RECIPE_MINUTES:
+        logger.warning("Duration %s exceeds cap (%d min), treating as invalid", iso, total)
+        return None
     return total if total > 0 else None
 
 
@@ -920,6 +1174,10 @@ _KEYWORD_FACET_MAP: dict[str, str] = {
     "teigwaren": "ingredient",
     "reis": "ingredient",
     "hülsenfrüchte": "ingredient",
+    "suppen": "ingredient",
+    "saucen & dips": "ingredient",
+    "pilze": "ingredient",
+    "nüsse": "ingredient",
     # occasion facet — events and timing
     "für gäste": "occasion",
     "party": "occasion",
@@ -929,10 +1187,30 @@ _KEYWORD_FACET_MAP: dict[str, str] = {
     "muttertag": "occasion",
     "fussball em & wm": "occasion",
     "brunch & frühstück": "occasion",
+    "apéro": "occasion",
+    "valentinstag": "occasion",
     # audience facet — who the recipe is for
     "familien-gerichte": "audience",
     "für unterwegs": "audience",
     "kochen & backen mit kindern": "audience",
+    # dietary facet — dietary properties
+    "vegetarisch": "dietary",
+    "vegan": "dietary",
+    "glutenfrei": "dietary",
+    "laktosefrei": "dietary",
+    # method facet — cooking methods
+    "grillieren": "method",
+    "backen": "method",
+    "dämpfen": "method",
+    "schmoren": "method",
+    # difficulty facet — effort level
+    "schnell & einfach": "difficulty",
+    # course facet — meal type
+    "dessert": "course",
+    "vorspeise": "course",
+    "hauptgericht": "course",
+    "beilage": "course",
+    "getränke": "course",
 }
 
 
@@ -1007,6 +1285,86 @@ def build_tag_rows_from_keywords(
                 tag_id += 1
 
             # Build recipe_tag link
+            if key in tag_map:
+                recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": tag_map[key]["id"]})
+            elif key in existing:
+                recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": existing[key]})
+
+    tag_rows = list(tag_map.values())
+    return tag_rows, recipe_tag_rows
+
+
+def build_tag_rows_from_classification(
+    recipe_rows: list[dict],
+    existing_tags: dict[str, int] | None = None,
+    next_tag_id: int = 1,
+) -> tuple[list[dict], list[dict]]:
+    """Derive tag rows from computed classification fields on recipe rows.
+
+    Guarantees every recipe gets at least one tag by creating tags from
+    the already-computed fields: dietary_flags, course, difficulty, and
+    cooking_method. This eliminates untagged recipes whose
+    original_keywords happen to be empty.
+
+    Args:
+        recipe_rows: List of recipe row dicts (output of build_recipe_row).
+        existing_tags: Dict of tag key → tag id already present.
+        next_tag_id: Starting ID for new tags.
+
+    Returns:
+        Tuple of (tag_rows, recipe_tag_rows).
+
+    Examples:
+        >>> rows = [{"id": 1, "dietary_flags": ["vegetarian", "quick"],
+        ...          "course": "main", "difficulty": "easy",
+        ...          "cooking_method": "braten"}]
+        >>> tags, rt = build_tag_rows_from_classification(rows)
+        >>> len(tags) >= 4
+        True
+    """
+    existing = existing_tags or {}
+    tag_id = next_tag_id
+
+    tag_map: dict[str, dict] = {}
+    recipe_tag_rows: list[dict] = []
+
+    for row in recipe_rows:
+        recipe_id = row["id"]
+        derived: list[tuple[str, str]] = []  # (display, facet)
+
+        # Dietary flags → dietary facet
+        for flag in row.get("dietary_flags") or []:
+            derived.append((flag, "dietary"))
+
+        # Course → course facet
+        course = row.get("course")
+        if course:
+            derived.append((course, "course"))
+
+        # Difficulty → difficulty facet
+        difficulty = row.get("difficulty")
+        if difficulty:
+            derived.append((difficulty, "difficulty"))
+
+        # Cooking method → method facet
+        method = row.get("cooking_method")
+        if method:
+            derived.append((method, "method"))
+
+        for display, facet in derived:
+            key = _slugify_tag(display)
+            if not key:
+                continue
+
+            if key not in tag_map and key not in existing:
+                tag_map[key] = {
+                    "id": tag_id,
+                    "key": key,
+                    "display": display,
+                    "facet": facet,
+                }
+                tag_id += 1
+
             if key in tag_map:
                 recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": tag_map[key]["id"]})
             elif key in existing:

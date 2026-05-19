@@ -384,6 +384,71 @@ class TestComputeDietaryFlags:
         assert "vegetarian" in flags
         assert "vegan" in flags
 
+    def test_unresolved_siedfleisch_not_vegetarian(self):
+        """Swiss-German 'Siedfleisch' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="800 g Siedfleisch"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_unresolved_mostbroeckli_not_vegetarian(self):
+        """Swiss charcuterie 'Mostbröckli' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="150 g Mostbröckli"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_unresolved_salsiz_not_vegetarian(self):
+        """Swiss dried sausage 'Salsiz' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="100 g Salsiz"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_unresolved_bresaola_not_vegetarian(self):
+        """Italian charcuterie 'Bresaola' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="80 g Bresaola"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_unresolved_pancetta_not_vegetarian(self):
+        """Italian 'Pancetta' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="100 g Pancetta"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_unresolved_fleischkaese_not_vegetarian(self):
+        """Swiss 'Fleischkäse' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="200 g Fleischkäse"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_unresolved_trockenfleisch_not_vegetarian(self):
+        """'Trockenfleisch' must be detected as meat."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="100 g Trockenfleisch"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
+    def test_resolved_miscategorized_meat_display_name_fallback(self):
+        """Resolved ingredient with meat keyword in display_de but wrong category."""
+        # ID 509 = Schweineschmalz (category: pantry, display_de contains 'schwein')
+        rows = [
+            _ingredient_row(ingredient_id=509),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+
 
 # ---------------------------------------------------------------------------
 # compute_food_groups

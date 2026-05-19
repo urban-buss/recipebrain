@@ -318,6 +318,43 @@ def read_table(entity: str, output_dir: Path) -> pa.Table:
     return pq.read_table(path)
 
 
+def update_table_row(
+    entity: str, row_id: int, updates: dict, output_dir: Path, *, id_column: str = "id"
+) -> None:
+    """Update a single row in a Parquet table identified by its ID.
+
+    Reads the full table, applies updates to the matching row, and rewrites.
+    No-op if the table or row does not exist.
+
+    Args:
+        entity: The entity name (key in SCHEMAS).
+        row_id: The value of the ID column to match.
+        updates: Dict of column_name → new_value to apply.
+        output_dir: Directory containing the parquet file.
+        id_column: Name of the ID column (default "id").
+    """
+    schema = _validate_entity(entity)
+    path = _parquet_path(entity, output_dir)
+    if not path.exists():
+        return
+
+    table = pq.read_table(path, schema=schema)
+    rows = table.to_pylist()
+
+    found = False
+    for row in rows:
+        if row.get(id_column) == row_id:
+            row.update(updates)
+            found = True
+            break
+
+    if not found:
+        return
+
+    new_table = _build_table(rows, schema)
+    pq.write_table(new_table, path)
+
+
 # ---------------------------------------------------------------------------
 # Schema version sidecar
 # ---------------------------------------------------------------------------

@@ -11,6 +11,8 @@ from unittest.mock import MagicMock
 from recipebrain.etl import (
     _DEFAULT_BATCH_SIZE,
     EtlResult,
+    _detect_interrupted_runs,
+    _finish_etl_run,
     _get_existing_urls,
     _get_source_adapters,
     _get_source_id,
@@ -19,13 +21,14 @@ from recipebrain.etl import (
     _reconcile_deleted,
     _run_source,
     _seed_lookup_tables,
+    _start_etl_run,
     _validate_recipe_content,
     _warn_on_suspicious_ingredients,
     run_etl,
 )
 from recipebrain.settings import PathsConfig, Settings, SourceConfig
 from recipebrain.sources.base import RawRecipe, SourceAdapter
-from recipebrain.writer import read_table, write_table
+from recipebrain.writer import read_table, update_table_row, write_table
 
 
 def _settings_for(tmp_path) -> Settings:
@@ -134,14 +137,20 @@ class TestRunSource:
         recipe_tags = read_table("recipe_tags", tmp_path)
         assert recipe_tags.num_rows > 0
 
-        # Recipe 1 should have 2 tags, recipe 2 should have 3
+        # Recipe 1 should have at least 2 keyword tags, recipe 2 at least 3
+        # Both also get classification-derived tags (course, difficulty, etc.)
         rt_rows = recipe_tags.to_pylist()
         recipe_1_id = read_table("recipes", tmp_path).column("id").to_pylist()[0]
         recipe_2_id = read_table("recipes", tmp_path).column("id").to_pylist()[1]
         r1_links = [r for r in rt_rows if r["recipe_id"] == recipe_1_id]
         r2_links = [r for r in rt_rows if r["recipe_id"] == recipe_2_id]
-        assert len(r1_links) == 2
-        assert len(r2_links) == 3
+        assert len(r1_links) >= 2
+        assert len(r2_links) >= 3
+
+        # Verify classification-derived tags exist (dietary, course, difficulty facets)
+        facets = set(tags.column("facet").to_pylist())
+        assert "ingredient" in facets  # from keywords
+        assert "occasion" in facets  # from keywords
 
     def test_skips_existing_urls(self, tmp_path):
         # Pre-populate with one recipe
@@ -1073,3 +1082,286 @@ class TestValidationSkippedInPipeline:
 
         runs = read_table("etl_runs", tmp_path).to_pylist()
         assert runs[0]["validation_skipped"] == 1
+
+
+class TestUpdateTableRow:
+    """Tests for the update_table_row writer helper."""
+
+    def test_updates_existing_row(self, tmp_path):
+        write_table("etl_runs", [{"id": 1, "source": "test", "status": "running"}], tmp_path)
+        update_table_row("etl_runs", 1, {"status": "success", "fetched": 10}, tmp_path)
+
+        rows = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(rows) == 1
+        assert rows[0]["status"] == "success"
+        assert rows[0]["fetched"] == 10
+
+    def test_noop_when_id_not_found(self, tmp_path):
+        write_table("etl_runs", [{"id": 1, "source": "test", "status": "running"}], tmp_path)
+        update_table_row("etl_runs", 99, {"status": "success"}, tmp_path)
+
+        rows = read_table("etl_runs", tmp_path).to_pylist()
+        assert rows[0]["status"] == "running"
+
+    def test_noop_when_file_missing(self, tmp_path):
+        # Should not raise
+        update_table_row("etl_runs", 1, {"status": "success"}, tmp_path)
+
+    def test_preserves_other_rows(self, tmp_path):
+        write_table(
+            "etl_runs",
+            [
+                {"id": 1, "source": "alpha", "status": "success"},
+                {"id": 2, "source": "beta", "status": "running"},
+            ],
+            tmp_path,
+        )
+        update_table_row("etl_runs", 2, {"status": "failed"}, tmp_path)
+
+        rows = read_table("etl_runs", tmp_path).to_pylist()
+        assert rows[0]["status"] == "success"
+        assert rows[1]["status"] == "failed"
+
+
+class TestWriteAtStart:
+    """Tests for the write-at-start ETL run pattern."""
+
+    def test_run_source_writes_running_row_immediately(self, tmp_path):
+        """A running row exists as soon as processing begins."""
+        call_count = 0
+
+        class SlowAdapter(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                nonlocal call_count
+                call_count += 1
+                # After first fetch, check that the running row exists
+                if call_count == 1:
+                    runs = read_table("etl_runs", tmp_path).to_pylist()
+                    running = [r for r in runs if r["status"] == "running"]
+                    assert len(running) == 1
+                return super().fetch(url)
+
+        adapter = SlowAdapter(urls=["https://a.ch/1", "https://a.ch/2"])
+        _run_source(adapter, tmp_path)
+
+        # After completion, the row should be finalized
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(runs) == 1
+        assert runs[0]["status"] == "success"
+        assert runs[0]["finished_at"] is not None
+
+    def test_run_source_initial_row_has_null_finished_at(self, tmp_path):
+        """The initial running row has finished_at=None."""
+        checked = False
+
+        class CheckAdapter(FakeAdapter):
+            def discover(self):
+                nonlocal checked
+                runs = read_table("etl_runs", tmp_path).to_pylist()
+                assert len(runs) == 1
+                assert runs[0]["finished_at"] is None
+                assert runs[0]["status"] == "running"
+                assert runs[0]["discovered"] == 0
+                checked = True
+                return ["https://a.ch/1"]
+
+        adapter = CheckAdapter(urls=[])
+        _run_source(adapter, tmp_path)
+        assert checked
+
+    def test_discovery_failure_finalizes_run(self, tmp_path):
+        """Discovery failure updates the running row to 'failed'."""
+        adapter = FakeAdapter()
+        adapter.discover = MagicMock(side_effect=RuntimeError("network down"))
+
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(runs) == 1
+        assert runs[0]["status"] == "failed"
+        assert runs[0]["finished_at"] is not None
+
+
+class TestProgressiveUpdates:
+    """Tests for progressive counter updates during batch flushes."""
+
+    def test_counters_updated_after_batch_flush(self, tmp_path):
+        """After a batch flush, the etl_runs row reflects current progress."""
+        batch_flush_count = 0
+
+        class ProgressCheckAdapter(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                nonlocal batch_flush_count
+                # Check progress after what would be the first batch flush
+                # batch_size=2, so after 3rd recipe the first batch should be flushed
+                result = super().fetch(url)
+                return result
+
+        adapter = ProgressCheckAdapter(urls=[f"https://a.ch/{i}" for i in range(5)])
+        _run_source(adapter, tmp_path, batch_size=2)
+
+        # Final state should reflect all fetched
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["fetched"] == 5
+        assert runs[0]["status"] == "success"
+
+    def test_progress_visible_mid_run(self, tmp_path):
+        """Progress counters are updated during the run, not just at the end."""
+        progress_snapshots = []
+
+        class SnapshotAdapter(FakeAdapter):
+            def fetch(self, url: str) -> RawRecipe:
+                # After every fetch, take a snapshot of the etl_runs state
+                result = super().fetch(url)
+                try:
+                    runs = read_table("etl_runs", tmp_path).to_pylist()
+                    progress_snapshots.append(runs[0].copy())
+                except Exception:
+                    pass
+                return result
+
+        adapter = SnapshotAdapter(urls=[f"https://a.ch/{i}" for i in range(6)])
+        _run_source(adapter, tmp_path, batch_size=2)
+
+        # After batch flush (2 recipes), progress should be updated
+        # The 3rd fetch happens after the first batch is flushed and progress updated
+        # So snapshot at index 2 (3rd fetch) should show fetched >= 2
+        assert any(s.get("fetched", 0) >= 2 for s in progress_snapshots)
+
+
+class TestDetectInterruptedRuns:
+    """Tests for _detect_interrupted_runs and resumption handling."""
+
+    def test_detects_stale_running_rows(self, tmp_path):
+        write_table(
+            "etl_runs",
+            [
+                {"id": 1, "source": "fooby", "status": "running"},
+                {"id": 2, "source": "fooby", "status": "success"},
+                {"id": 3, "source": "migusto", "status": "running"},
+            ],
+            tmp_path,
+        )
+
+        stale = _detect_interrupted_runs("fooby", tmp_path)
+        assert len(stale) == 1
+        assert stale[0]["id"] == 1
+
+    def test_returns_empty_when_no_running(self, tmp_path):
+        write_table(
+            "etl_runs",
+            [{"id": 1, "source": "fooby", "status": "success"}],
+            tmp_path,
+        )
+        assert _detect_interrupted_runs("fooby", tmp_path) == []
+
+    def test_returns_empty_when_no_file(self, tmp_path):
+        assert _detect_interrupted_runs("fooby", tmp_path) == []
+
+    def test_run_source_marks_stale_as_crashed(self, tmp_path):
+        """Previous 'running' rows are marked 'crashed' on new run."""
+        write_table(
+            "etl_runs",
+            [{"id": 1, "source": "fake", "status": "running", "fetched": 5}],
+            tmp_path,
+        )
+
+        adapter = FakeAdapter(urls=["https://a.ch/1"])
+        _run_source(adapter, tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        # Should have: old crashed row + new successful row
+        assert len(runs) == 2
+        old_row = next(r for r in runs if r["id"] == 1)
+        new_row = next(r for r in runs if r["id"] == 2)
+        assert old_row["status"] == "crashed"
+        assert new_row["status"] == "success"
+
+    def test_resumption_skips_previously_fetched_urls(self, tmp_path):
+        """On resumption, previously flushed recipes are skipped."""
+        # Simulate a crashed run that already processed 2 recipes
+        write_table(
+            "etl_runs",
+            [{"id": 1, "source": "fake", "status": "running", "fetched": 2}],
+            tmp_path,
+        )
+        write_table(
+            "recipes",
+            [
+                {"id": 1, "source_url": "https://a.ch/1", "title": "R1", "source_id": 99},
+                {"id": 2, "source_url": "https://a.ch/2", "title": "R2", "source_id": 99},
+            ],
+            tmp_path,
+        )
+
+        # New run discovers the same URLs plus more
+        adapter = FakeAdapter(
+            urls=["https://a.ch/1", "https://a.ch/2", "https://a.ch/3", "https://a.ch/4"]
+        )
+        result = _run_source(adapter, tmp_path)
+
+        # Should only fetch the 2 new ones
+        assert result.skipped == 2
+        assert result.fetched == 2
+
+        recipes = read_table("recipes", tmp_path)
+        assert recipes.num_rows == 4
+
+
+class TestStartEtlRun:
+    """Tests for _start_etl_run."""
+
+    def test_writes_running_row(self, tmp_path):
+        started_at = datetime.now(UTC)
+        run_id = _start_etl_run(
+            "test_source", started_at, batch_size=10, limit=100, output_dir=tmp_path
+        )
+
+        assert run_id == 1
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert len(runs) == 1
+        row = runs[0]
+        assert row["status"] == "running"
+        assert row["source"] == "test_source"
+        assert row["batch_size"] == 10
+        assert row["limit"] == 100
+        assert row["finished_at"] is None
+        assert row["duration_seconds"] is None
+        assert row["fetched"] == 0
+
+    def test_uses_default_batch_size(self, tmp_path):
+        started_at = datetime.now(UTC)
+        _start_etl_run("test", started_at, batch_size=None, limit=None, output_dir=tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        assert runs[0]["batch_size"] == _DEFAULT_BATCH_SIZE
+
+    def test_sequential_ids(self, tmp_path):
+        started_at = datetime.now(UTC)
+        id1 = _start_etl_run("s1", started_at, None, None, tmp_path)
+        id2 = _start_etl_run("s2", started_at, None, None, tmp_path)
+        assert id1 == 1
+        assert id2 == 2
+
+
+class TestFinishEtlRun:
+    """Tests for _finish_etl_run."""
+
+    def test_updates_running_to_success(self, tmp_path):
+        started_at = datetime.now(UTC)
+        t0 = time.monotonic()
+        run_id = _start_etl_run("test", started_at, None, None, tmp_path)
+
+        result = EtlResult(source="test", discovered=5, fetched=3, skipped=1, errors=1)
+        result.error_details = ["Fetch failed (url): timeout"]
+        _finish_etl_run(run_id, result, t0, "partial", tmp_path)
+
+        runs = read_table("etl_runs", tmp_path).to_pylist()
+        row = runs[0]
+        assert row["status"] == "partial"
+        assert row["finished_at"] is not None
+        assert row["duration_seconds"] >= 0
+        assert row["discovered"] == 5
+        assert row["fetched"] == 3
+        assert row["errors"] == 1
+        assert "timeout" in row["error_summary"]

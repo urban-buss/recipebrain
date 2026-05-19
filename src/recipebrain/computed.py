@@ -142,6 +142,23 @@ _MEAT_RAW_KEYWORDS: frozenset[str] = frozenset(
         "wildschwein",
         "kaninchen",
         "hase",
+        # Swiss-German / regional meat terms
+        "siedfleisch",
+        "trockenfleisch",
+        "bündnerfleisch",
+        "fleischkäse",
+        "salsiz",
+        "mostbröckli",
+        "fleischvogel",
+        "schweinshaxe",
+        "kutteln",
+        # Italian/charcuterie meat terms
+        "lardo",
+        "pancetta",
+        "bresaola",
+        "mortadella",
+        "coppa",
+        "guanciale",
         # French meat terms
         "viande",
         "boeuf",
@@ -609,7 +626,23 @@ def compute_dietary_flags(
     has_fish = "fish" in categories
     has_dairy = "dairy" in categories
 
-    # Fallback: if resolved ingredients show no meat/fish, check raw text
+    # Secondary fallback: check resolved ingredients' display names for
+    # meat/fish keywords.  Catches miscategorized catalogue entries (e.g. a
+    # meat product filed under "pantry").
+    if not has_meat and not has_fish:
+        for _row, entry in resolved:
+            display = entry.display_de.lower()
+            for token in display.split():
+                if _token_matches_keywords(token, _MEAT_RAW_KEYWORDS):
+                    has_meat = True
+                    break
+                if _token_matches_keywords(token, _FISH_RAW_KEYWORDS):
+                    has_fish = True
+                    break
+            if has_meat or has_fish:
+                break
+
+    # Tertiary fallback: scan unresolved ingredient raw text
     if not has_meat and not has_fish:
         has_meat = _raw_text_has_meat(ingredient_rows)
         has_fish = _raw_text_has_fish(ingredient_rows)

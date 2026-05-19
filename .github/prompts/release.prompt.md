@@ -1,35 +1,22 @@
 ---
-description: "Prepare a patch release: CI check, version bump, squash merge, and generate PyPI test prompt"
+description: "Prepare a patch release: version bump, squash merge to a meaningful feature branch"
 agent: agent
 ---
 # Release Patch
 
-Prepare the current branch for a patch release. Execute all steps in order — stop and report if any step fails unrecoverably.
+Prepare the current local branch for a patch release. Execute all steps in order — stop and report if any step fails.
 
-## 1. Run CI Checks
+## 1. Verify Local Branch
 
-Run the full local CI pipeline (lint, format, typecheck, tests, smoke-test) as defined in [ci.prompt.md](ci.prompt.md).
+Confirm the current branch matches the `local_*` pattern:
 
 ```
-ruff check .
-ruff format --check .
-mypy src/recipebrain
-pytest --cov=recipebrain --cov-report=term-missing -W error::pytest.PytestCollectionWarning
-python -c "import recipebrain; print(recipebrain.__version__)"
-recipebrain --help
-python .github/tools/sync-skills.py
-git diff --exit-code src/recipebrain/skills/
+git branch --show-current
 ```
 
-If any lint or format errors are found, **fix them automatically**, stage, and commit:
-```
-git add -A
-git commit -m "style: auto-fix lint/format issues"
-```
+If the branch does **not** start with `local_`, stop and inform the user.
 
-If tests fail, diagnose the root cause, fix, and commit before proceeding.
-
-## 2. Bump Patch Version
+## 2. Bump Patch Version (if needed)
 
 Compare the current version in `pyproject.toml` against the `main` branch:
 
@@ -38,8 +25,8 @@ git show main:pyproject.toml | Select-String 'version'
 ```
 
 If the local version is **unchanged** from main, bump to the next patch:
-- Read current version from `pyproject.toml` (e.g. `0.0.1`)
-- Increment patch → `0.0.2`
+- Read current version from `pyproject.toml` (e.g. `0.0.11`)
+- Increment patch → `0.0.12`
 - Update `version = "..."` in `pyproject.toml`
 - Update `__version__` in `src/recipebrain/__init__.py` if it exists there
 - Commit:
@@ -50,29 +37,37 @@ If the local version is **unchanged** from main, bump to the next patch:
 
 If the version was already bumped, skip this step.
 
-## 3. Squash Merge to Feature Branch
+## 3. Review Commits
 
-Determine the current branch name. It should match `local_*` pattern:
-
-```
-git branch --show-current
-```
-
-Derive the target feature branch name by stripping the `local_` prefix (e.g. `local_fix-search` → `fix-search`).
-
-Then squash all commits from this local branch into a single commit on the feature branch:
+List all commits on the local branch that are not yet on main:
 
 ```
-# Count commits ahead of main
 git log main..HEAD --oneline
+```
 
-# Switch to (or create) the feature branch from main
+Read through all commit messages to understand the scope of changes.
+
+## 4. Derive Feature Branch Name
+
+Based on the commit messages from step 3, choose a **meaningful, kebab-case branch name** that summarises the body of work (e.g. `fix-etl-metadata`, `add-promotion-caching`, `refactor-query-layer`).
+
+Create the feature branch from main:
+
+```
 git checkout -B <feature-branch> main
+```
 
-# Squash merge all work from the local branch
+## 5. Squash Merge
+
+Squash all work from the local branch into a single commit on the new feature branch:
+
+```
 git merge --squash local_<name>
+```
 
-# Craft a meaningful commit message summarising ALL changes
+Craft a meaningful commit message based on the consolidated changes:
+
+```
 git commit -m "<type>(<scope>): <summary>" -m "<body with bullet points of key changes>"
 ```
 
@@ -80,67 +75,11 @@ The commit message must:
 - Use conventional commit format (`feat`, `fix`, `chore`, `refactor`, etc.)
 - Summarise the overall change in the subject line
 - List individual changes as bullet points in the body
-- Reference any notable fixes or features
+- **Do NOT** quote any issue IDs (e.g. `#061`) or analysis document IDs — those are internal
 
-After the squash commit, switch back to the local branch:
-```
-git checkout local_<name>
-```
+## 6. Final State
 
-## 4. Generate PyPI Test Prompt
-
-Analyse all changes included in this release:
-
-```
-git log main..<feature-branch> --oneline
-git diff main..<feature-branch> --stat
-git diff main..<feature-branch> -- src/
-```
-
-Then create a new file `.prompts/test-pypi-install-v<NEW_VERSION>.prompt.md` with:
-
-### Structure of the generated prompt:
-
-```markdown
----
-mode: agent
-description: "End-to-end verification of recipebrain v<NEW_VERSION> installed from PyPI"
----
-
-# Test recipebrain v<NEW_VERSION> PyPI Installation
-
-## Environment Setup
-- Create fresh venv
-- pip install recipebrain==<NEW_VERSION>
-- Verify version, license, dependencies
-
-## New Feature Tests
-(For each changed/added feature in this release, write specific test steps)
-
-## Regression Tests
-(For each module that was modified, write steps to verify existing functionality still works)
-
-## Core Functionality Tests
-- CLI smoke tests (--version, --help, info, doctor, validate, snapshot list)
-- Import all core modules
-- ETL dry run with minimal config
-- MCP server startup test
-- Entry point verification
-
-## Upgrade Path
-- pip install --upgrade recipebrain
-- Verify version changed
-- Run migrations if any schema changes
-- Verify existing data still loads
-
-## Summary Table
-| # | Test | Result |
-|---|------|--------|
-```
-
-Include specific test commands for every feature that changed in this release. Do not use generic placeholders — derive actual test cases from the diff.
-
-## 5. Final Report
+Stay on the new feature branch (do **not** switch back to the local branch).
 
 Print a summary:
 
@@ -150,7 +89,6 @@ Release Preparation Complete
 Version:        <NEW_VERSION>
 Feature branch: <feature-branch>
 Squash commit:  <short hash + subject>
-Test prompt:    .prompts/test-pypi-install-v<NEW_VERSION>.prompt.md
 
 Next steps:
   1. git push origin <feature-branch>
