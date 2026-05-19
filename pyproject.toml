@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "recipebrain"
-version = "0.0.12"
+version = "0.0.13"
 description = "Personal Swiss recipe knowledge base with promotion-aware meal planning, exposed via MCP. Companion to cellarbrain."
 readme = "README.md"
 license = "MIT"
@@ -62,4 +62,8 @@ warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 module = ["extruct.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["PIL.*"]
 ignore_missing_imports = true

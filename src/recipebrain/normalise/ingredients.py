@@ -390,7 +390,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "vegetable",
         "root",
         aliases=["Karotte", "Karotten", "Möhre", "Möhren", "Rüebli"],
-        tags=["root-veg", "sweet"],
+        tags=["root_veg", "sweet"],
     ),
     _ci(
         43,
@@ -408,7 +408,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
             "Raclette-Kartoffeln",
             "Frühkartoffeln",
         ],
-        tags=["starchy", "root-veg"],
+        tags=["starchy", "root_veg"],
     ),
     _ci(
         44,
@@ -471,7 +471,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "vegetable",
         "fungus",
         aliases=["Champignons", "Pilze", "Pilz"],
-        tags=["earthy", "umami"],
+        tags=["earthy", "umami", "mushroom"],
     ),
     _ci(
         49,
@@ -481,7 +481,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Spinach",
         "vegetable",
         "leaf",
-        aliases=["Blattspinat", "Jungspinat", "Babyspinat"],
+        aliases=["Blattspinat", "Jungspinat", "Babyspinat", "Winterspinat"],
         tags=["green", "iron-rich"],
     ),
     _ci(
@@ -666,6 +666,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "herb",
         "fresh",
         unit="Zweig",
+        aliases=["Rosmarinnadeln", "Rosmarinzweig"],
         tags=["herb", "aromatic"],
     ),
     _ci(
@@ -867,7 +868,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "canned",
         unit="Dose",
         aliases=["Kokosnussmilch"],
-        tags=["coconut", "creamy"],
+        tags=["vegan", "coconut", "creamy"],
     ),
     # -- Stock / Broth --
     _ci(
@@ -1316,7 +1317,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "vegetable",
         "root",
         aliases=["Rande", "Rote Bete", "Rote Beete"],
-        tags=["earthy", "root-veg"],
+        tags=["earthy", "root_veg"],
     ),
     _ci(
         146,
@@ -1907,7 +1908,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "baking",
         unit="EL",
         aliases=["Kakao", "Backkakao", "Schokoladepulver"],
-        tags=["chocolate", "baking"],
+        tags=["vegan", "chocolate", "baking"],
     ),
     _ci(
         204,
@@ -2345,7 +2346,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "grain",
         aliases=[],
-        tags=["grain", "protein"],
+        tags=["vegan", "grain", "protein"],
     ),
     _ci(
         247,
@@ -2570,7 +2571,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "protein",
         aliases=["Seidentofu", "Räuchertofu", "Naturtofu", "geräucherter Tofu"],
-        tags=["vegan", "protein"],
+        tags=["vegan", "protein", "tofu"],
     ),
     # -- Beverages / Liquids --
     _ci(
@@ -2995,7 +2996,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "Smoked salmon",
         "fish",
         "smoked",
-        aliases=["Graved Lachs"],
+        aliases=["Graved Lachs", "Rauchlachs", "Gravlax"],
         tags=["fish", "smoked"],
     ),
     _ci(
@@ -3272,7 +3273,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "dried",
         aliases=["getrocknete Steinpilze", "Shiitake getrocknet", "Morcheln"],
-        tags=["umami", "earthy"],
+        tags=["umami", "earthy", "mushroom"],
     ),
     _ci(
         350,
@@ -3318,7 +3319,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "protein",
         aliases=[],
-        tags=["vegan", "protein"],
+        tags=["vegan", "protein", "tofu"],
     ),
     _ci(
         356,
@@ -3329,7 +3330,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "pantry",
         "protein",
         aliases=["Weizeneiweiss"],
-        tags=["vegan", "protein"],
+        tags=["vegan", "protein", "tofu"],
     ),
     # -- Plant-based Milks --
     _ci(
@@ -4219,6 +4220,298 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         aliases=["Quitten"],
         tags=["fruity", "tart"],
     ),
+    # -- Vegan / Plant-based specialty --
+    _ci(
+        528,
+        "agar-agar",
+        "Agar-Agar",
+        "Agar-agar",
+        "Agar-agar",
+        "pantry",
+        "gelling",
+        aliases=["Agartine", "Agar"],
+        tags=["vegan"],
+    ),
+    _ci(
+        529,
+        "almond-flour",
+        "Mandelmehl",
+        "Farine d'amandes",
+        "Almond flour",
+        "pantry",
+        "nut",
+        aliases=[],
+        tags=["vegan", "nut"],
+    ),
+    # -- Fooby-specific additions (issue #069) --
+    _ci(
+        530,
+        "wild-garlic",
+        "Bärlauch",
+        "Ail des ours",
+        "Wild garlic",
+        "herb",
+        "fresh",
+        aliases=["Bärlauchblätter"],
+        tags=["vegan", "herb"],
+    ),
+    _ci(
+        531,
+        "pearl-barley",
+        "Perlgerste",
+        "Orge perlé",
+        "Pearl barley",
+        "pantry",
+        "grain",
+        aliases=["Rollgerste", "Gerste"],
+        tags=["vegan", "grain"],
+    ),
+    _ci(
+        532,
+        "red-wine-vinegar",
+        "Rotweinessig",
+        "Vinaigre de vin rouge",
+        "Red wine vinegar",
+        "pantry",
+        "vinegar",
+        aliases=[],
+        tags=["vegan"],
+    ),
+    _ci(
+        533,
+        "panko",
+        "Panko",
+        "Panko",
+        "Panko breadcrumbs",
+        "pantry",
+        "breadcrumbs",
+        aliases=["Panko-Brösel"],
+        tags=["vegan", "grain"],
+    ),
+    _ci(
+        534,
+        "psyllium-husk",
+        "Flohsamen",
+        "Psyllium",
+        "Psyllium husk",
+        "pantry",
+        "binding",
+        aliases=["Flohsamenschalen"],
+        tags=["vegan"],
+    ),
+    _ci(
+        535,
+        "pineapple",
+        "Ananas",
+        "Ananas",
+        "Pineapple",
+        "fruit",
+        "tropical",
+        aliases=[],
+        tags=["vegan", "fruity"],
+    ),
+    _ci(
+        536,
+        "knoepfli-flour",
+        "Knöpflimehl",
+        None,
+        "Knöpfli flour",
+        "pantry",
+        "flour",
+        aliases=[],
+        tags=["vegan", "grain"],
+    ),
+    # --- Migusto catalogue expansion (issue #074) ---
+    _ci(
+        537,
+        "gin",
+        "Gin",
+        "Gin",
+        "Gin",
+        "pantry",
+        "spirit",
+        unit="ml",
+        density=0.94,
+        aliases=[],
+        tags=["vegan"],
+    ),
+    _ci(
+        538,
+        "pastrami",
+        "Pastrami",
+        "Pastrami",
+        "Pastrami",
+        "meat",
+        "beef",
+        aliases=[],
+        tags=["beef"],
+    ),
+    _ci(
+        539,
+        "tilsiter",
+        "Tilsiter",
+        "Tilsit",
+        "Tilsit cheese",
+        "dairy",
+        "cheese-semi-hard",
+        aliases=["Tilsiter surchoix"],
+        tags=["cheese"],
+    ),
+    _ci(
+        540,
+        "matcha",
+        "Matcha-Pulver",
+        "Poudre de matcha",
+        "Matcha powder",
+        "pantry",
+        "tea",
+        aliases=["Matcha", "Matchapulver"],
+        tags=["vegan"],
+    ),
+    _ci(
+        541,
+        "raspberry-syrup",
+        "Himbeersirup",
+        "Sirop de framboise",
+        "Raspberry syrup",
+        "pantry",
+        "syrup",
+        unit="ml",
+        density=1.3,
+        aliases=["Himbeer-Sirup"],
+        tags=["vegan"],
+    ),
+    _ci(
+        542,
+        "pumpernickel",
+        "Pumpernickel",
+        "Pumpernickel",
+        "Pumpernickel",
+        "pantry",
+        "bread",
+        aliases=[],
+        tags=["vegan", "grain"],
+    ),
+    _ci(
+        543,
+        "ice-water",
+        "Eiswasser",
+        "Eau glacée",
+        "Ice water",
+        "other",
+        "water",
+        unit="ml",
+        density=1.0,
+        aliases=["eiskaltes Wasser"],
+        tags=["vegan"],
+    ),
+    _ci(
+        544,
+        "vermouth",
+        "Noilly Prat",
+        "Noilly Prat",
+        "Vermouth",
+        "pantry",
+        "spirit",
+        unit="ml",
+        density=0.94,
+        aliases=["Wermut", "Vermouth"],
+        tags=["vegan"],
+    ),
+    _ci(
+        545,
+        "crackers",
+        "Crackers",
+        "Crackers",
+        "Crackers",
+        "pantry",
+        "bread",
+        aliases=["Cracker"],
+        tags=["vegan", "grain"],
+    ),
+    _ci(
+        546,
+        "lemon-thyme",
+        "Zitronenthymian",
+        "Thym citron",
+        "Lemon thyme",
+        "herb",
+        "fresh",
+        unit="Zweig",
+        tags=["herb", "aromatic"],
+    ),
+    _ci(
+        547,
+        "tomato-passata",
+        "Tomatenpassata",
+        "Passata de tomates",
+        "Tomato passata",
+        "pantry",
+        "sauce",
+        unit="dl",
+        density=1.05,
+        aliases=["Passata", "Passierte Tomaten"],
+        tags=["vegan"],
+    ),
+    _ci(
+        548,
+        "coconut-water",
+        "Kokoswasser",
+        "Eau de coco",
+        "Coconut water",
+        "pantry",
+        "liquid",
+        unit="dl",
+        density=1.0,
+        tags=["vegan"],
+    ),
+    _ci(
+        549,
+        "sriracha",
+        "Sriracha",
+        "Sriracha",
+        "Sriracha",
+        "pantry",
+        "condiment",
+        unit="EL",
+        aliases=["Sriracha-Sauce"],
+        tags=["vegan", "spicy"],
+    ),
+    _ci(
+        550,
+        "raw-cane-sugar",
+        "Vollrohrzucker",
+        "Sucre de canne complet",
+        "Raw cane sugar",
+        "pantry",
+        "sweetener",
+        aliases=["Rohrzucker"],
+        tags=["vegan"],
+    ),
+    _ci(
+        551,
+        "beef-stock",
+        "Rindsfond",
+        "Fond de boeuf",
+        "Beef stock",
+        "pantry",
+        "stock",
+        unit="dl",
+        density=1.0,
+        aliases=[],
+        tags=[],
+    ),
+    _ci(
+        552,
+        "instant-mashed-potato",
+        "Kartoffelstockpulver",
+        "Flocons de pommes de terre",
+        "Instant mashed potato",
+        "pantry",
+        "processed",
+        aliases=["Kartoffelstock-Pulver", "Kartoffelstockflocken"],
+        tags=["vegan"],
+    ),
 ]
 
 # Public alias — documented name in the specification
@@ -4444,6 +4737,11 @@ _ADJECTIVES_DE: list[str] = [
     "scharfer",
     "scharfe",
     "scharfes",
+    # Strong/weak flavour
+    "kräftiger",
+    "kräftige",
+    "kräftiges",
+    "kräftigem",
     # Rolled out / processed
     "ausgewallter",
     "ausgewallte",
@@ -4451,6 +4749,10 @@ _ADJECTIVES_DE: list[str] = [
     # Leaf/texture descriptors
     "glattblättrige",
     "glattblättriger",
+    "glatter",
+    "glatte",
+    "glattes",
+    "glatt",
     "krause",
     "krauser",
     # Origin/type adjectives
@@ -4601,6 +4903,8 @@ def _strip_adjectives(normalised_text: str) -> str:
                 break
     # Strip trailing "zum + verb" purpose qualifiers (e.g. "ol zum braten" → "ol")
     text = _ZUM_SUFFIX_RE.sub("", text).rstrip()
+    # Strip trailing "à X g" weight clarification (e.g. "steaks a ca. 200 g" → "steaks")
+    text = _A_SUFFIX_RE.sub("", text).rstrip()
     return text
 
 
@@ -4614,8 +4918,16 @@ _ZUM_SUFFIX_RE = re.compile(
     r"|am\s+\w+"  # "am Stück"
     r"|in\s+\w+"  # "in Tranchen", "in Würfeli"
     r"|beim\s+(?:\w+\s+)*\w+"  # "beim Metzger vorbestellt"
-    r"|oder\s+\w+"  # "oder Speck" (alternative ingredient)
+    r"|oder\s+(?:\w+\s+)*\w+"  # "oder Speck", "oder Blattspinat"
     r")$",
+    re.IGNORECASE,
+)
+
+# Strips trailing "à (ca.) <number> g/ml/..." weight clarification suffixes.
+# Handles "Steaks à 200 g", "Filet à ca. 150 g", "Kichererbsen a 400 g".
+# Note: after NFKD normalisation, "à" becomes "a".
+_A_SUFFIX_RE = re.compile(
+    r",?\s+a\s+(?:ca\.?\s*)?\d+(?:[.,]\d+)?\s*(?:g|kg|ml|cl|dl|l)\b.*$",
     re.IGNORECASE,
 )
 
@@ -4939,6 +5251,12 @@ _PAREN_BRAND_RE = re.compile(
 # Handles cases like "(Bio)", "(MSC)", "(Bacon)" that _PAREN_BRAND_RE misses.
 _PAREN_ANY_RE = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
 
+# Strips Proviande "vom Schweizer [Animal]" branding qualifier used by schweizerfleisch.ch
+_BRANDING_QUALIFIER_RE = re.compile(
+    r"\s+vom\s+Schweizer\s+(?:Kalb|Rind|Schwein|Poulet|Lamm|Geflügel)",
+    re.IGNORECASE,
+)
+
 # Matches leading quantity+unit patterns like "200g", "200 g", "1.5 kg",
 # "½ dl", "2½ EL", fractional quantities, and range patterns ("2-3").
 # Includes German units (EL, TL, Prise, etc.) and French units (c.s., c.c., pincée, etc.)
@@ -4951,7 +5269,7 @@ _QUANTITY_UNIT_RE = re.compile(
     r"|stück|stk|scheibe|scheiben|blatt|blätter"
     r"|zweig|zweige|zehe|zehen|dose|dosen"
     r"|becher|packung|pkg|tropfen|tasse|tassen"
-    r"|tranchen|päckli|packli|würfel"
+    r"|tranchen|päckli|packli|würfel|beutel|tube"
     # French units
     r"|c\.s\.|c\.c\.|cs|cc|pincee|pincées?|gouttes?"
     r"|tranche|tranches|bouquet|sachet|sachets"
@@ -5037,9 +5355,23 @@ def normalise_ingredient(raw_name: str) -> str | None:
     """
     # Strip all parenthetical content (brand, variety, weight, quality labels)
     raw_name = _PAREN_ANY_RE.sub("", raw_name).strip()
-    # Strip trailing comma and everything after (prep instructions)
-    if "," in raw_name:
-        raw_name = raw_name[: raw_name.index(",")].strip()
+    # Strip Proviande "vom Schweizer [Animal]" branding qualifier
+    raw_name = _BRANDING_QUALIFIER_RE.sub("", raw_name).strip()
+    # Strip trailing comma and everything after (prep instructions).
+    # Skip commas that are part of decimal numbers (e.g. "0,5 dl").
+    comma_idx = raw_name.find(",")
+    while comma_idx != -1:
+        # Check if comma is between digits (decimal separator)
+        if (
+            comma_idx > 0
+            and comma_idx < len(raw_name) - 1
+            and raw_name[comma_idx - 1].isdigit()
+            and raw_name[comma_idx + 1].isdigit()
+        ):
+            comma_idx = raw_name.find(",", comma_idx + 1)
+        else:
+            raw_name = raw_name[:comma_idx].strip()
+            break
     normalised = _normalise(raw_name)
     if not normalised:
         return None

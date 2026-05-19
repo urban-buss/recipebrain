@@ -262,6 +262,164 @@ _FISH_RAW_KEYWORDS: frozenset[str] = frozenset(
     }
 )
 
+# Keyword → specific protein type for raw-text inference.
+# When a raw-text token matches a keyword here, we can assign a specific protein
+# instead of the generic "meat"/"fish" fallback.
+_KEYWORD_TO_PROTEIN: dict[str, str] = {
+    # Poultry
+    "poulet": "poultry",
+    "pouletbrust": "poultry",
+    "pouletschenkel": "poultry",
+    "pouletflügel": "poultry",
+    "hähnchen": "poultry",
+    "huhn": "poultry",
+    "hühnchen": "poultry",
+    "truthahn": "poultry",
+    "ente": "poultry",
+    "entenbrust": "poultry",
+    "gans": "poultry",
+    "chicken": "poultry",
+    "turkey": "poultry",
+    "duck": "poultry",
+    "volaille": "poultry",
+    "canard": "poultry",
+    "dinde": "poultry",
+    # Beef
+    "rindfleisch": "beef",
+    "rind": "beef",
+    "rinds": "beef",
+    "beef": "beef",
+    "boeuf": "beef",
+    # Veal
+    "kalbfleisch": "veal",
+    "kalb": "veal",
+    "veau": "veal",
+    # Pork
+    "schweinefleisch": "pork",
+    "schwein": "pork",
+    "schweins": "pork",
+    "speck": "pork",
+    "schinken": "pork",
+    "porc": "pork",
+    "jambon": "pork",
+    "bacon": "pork",
+    "lardons": "pork",
+    "pancetta": "pork",
+    "guanciale": "pork",
+    "lardo": "pork",
+    "prosciutto": "pork",
+    # Lamb
+    "lammfleisch": "lamb",
+    "lamm": "lamb",
+    "agneau": "lamb",
+    "lamb": "lamb",
+    # Game
+    "wildfleisch": "game",
+    "hirsch": "game",
+    "reh": "game",
+    "wildschwein": "game",
+    "kaninchen": "game",
+    "hase": "game",
+    "gibier": "game",
+    "chevreuil": "game",
+    "lapin": "game",
+    "venison": "game",
+    "rabbit": "game",
+    # Sausage
+    "wurst": "sausage",
+    "bratwurst": "sausage",
+    "cervelat": "sausage",
+    "landjäger": "sausage",
+    "saucisse": "sausage",
+    "sausage": "sausage",
+    "salami": "sausage",
+    "mortadella": "sausage",
+    # Generic meat (sub-type unknown)
+    "fleisch": "meat",
+    "hackfleisch": "meat",
+    "gehacktes": "meat",
+    "geschnetzeltes": "meat",
+    "viande": "meat",
+    "steak": "meat",
+    "filet": "meat",
+    "schnitzel": "meat",
+    "siedfleisch": "meat",
+    "trockenfleisch": "meat",
+    "bündnerfleisch": "meat",
+    "fleischkäse": "meat",
+    "salsiz": "meat",
+    "mostbröckli": "meat",
+    "fleischvogel": "meat",
+    "kutteln": "meat",
+    "coppa": "meat",
+    "bresaola": "meat",
+    "ham": "meat",
+    # Fish
+    "fisch": "fish",
+    "lachs": "fish",
+    "lachsfilet": "fish",
+    "forelle": "fish",
+    "dorsch": "fish",
+    "kabeljau": "fish",
+    "thunfisch": "fish",
+    "zander": "fish",
+    "egli": "fish",
+    "eglifilet": "fish",
+    "saibling": "fish",
+    "felchen": "fish",
+    "hecht": "fish",
+    "seezunge": "fish",
+    "scholle": "fish",
+    "pangasius": "fish",
+    "wolfsbarsch": "fish",
+    "dorade": "fish",
+    "sardine": "fish",
+    "sardelle": "fish",
+    "anchovis": "fish",
+    "hering": "fish",
+    "makrele": "fish",
+    "poisson": "fish",
+    "saumon": "fish",
+    "truite": "fish",
+    "cabillaud": "fish",
+    "thon": "fish",
+    "loup": "fish",
+    "daurade": "fish",
+    "salmon": "fish",
+    "trout": "fish",
+    "cod": "fish",
+    "tuna": "fish",
+    "seabass": "fish",
+    "anchovy": "fish",
+    # Seafood
+    "crevetten": "seafood",
+    "crevette": "seafood",
+    "garnelen": "seafood",
+    "shrimps": "seafood",
+    "scampi": "seafood",
+    "langustine": "seafood",
+    "jakobsmuschel": "seafood",
+    "muscheln": "seafood",
+    "tintenfisch": "seafood",
+    "calamari": "seafood",
+    "pulpo": "seafood",
+    "oktopus": "seafood",
+    "meeresfrüchte": "seafood",
+    "crevettes": "seafood",
+    "moules": "seafood",
+    "calamars": "seafood",
+    "poulpe": "seafood",
+    "homard": "seafood",
+    "langoustine": "seafood",
+    "shrimp": "seafood",
+    "prawn": "seafood",
+    "lobster": "seafood",
+    "mussel": "seafood",
+    "squid": "seafood",
+    "octopus": "seafood",
+    "seafood": "seafood",
+}
+
 _METHOD_PATTERNS: dict[str, list[str]] = {
     "grilled": ["grill", "grillier", "bbq", "barbecue"],
     "baked": ["backen", "ofen", "überback", "au four", "gratinieren"],
@@ -288,20 +446,30 @@ _SWEET_INGREDIENT_KEYS: frozenset[str] = frozenset(
 
 CELLARBRAIN_FOOD_GROUP_VOCAB: frozenset[str] = frozenset(
     {
-        # True food groups only — protein family, cheese, diet category.
-        # Cooking method, weight class, cuisine, and taste descriptors belong in
-        # their dedicated scalar columns (and are re-aggregated in computed_tags
-        # for central querying). Putting them here would pollute food_groups
-        # and conflate independent dimensions.
+        # True food groups only — protein family, cheese, diet category,
+        # plant-based food groups. Cooking method, weight class, cuisine, and
+        # taste descriptors belong in their dedicated scalar columns (and are
+        # re-aggregated in computed_tags for central querying). Putting them
+        # here would pollute food_groups and conflate independent dimensions.
+        # Animal proteins
         "red_meat",
         "poultry",
         "fish",
         "seafood",
         "pork",
         "game",
+        # Dairy
+        "cheese",
+        # Diet markers
         "vegetarian",
         "vegan",
-        "cheese",
+        # Plant-based food groups
+        "legume",
+        "grain",
+        "mushroom",
+        "tofu",
+        "nut",
+        "root_veg",
     }
 )
 
@@ -331,12 +499,20 @@ def _has_keyword_match(keywords: list[str], target_set: frozenset[str]) -> bool:
     return any(kw.lower() in target_set for kw in keywords)
 
 
-def _token_matches_keywords(token: str, keyword_set: frozenset[str]) -> bool:
-    """Check if a cleaned token matches any keyword via exact or prefix match.
+# Generic cut/preparation terms that should not participate in suffix matching.
+# These words don't determine the protein category when used as a suffix
+# (e.g. "Lachsfilet" is fish, not meat — "filet" is just the cut).
+_SUFFIX_MATCH_EXCLUDE: frozenset[str] = frozenset({"filet", "steak", "schnitzel"})
 
-    German compound words (e.g. 'Pouletschenkel') start with the base noun
-    ('Poulet'), so we also check if the token starts with a keyword of 4+
-    characters to avoid false positives from short prefixes.
+
+def _token_matches_keywords(token: str, keyword_set: frozenset[str]) -> bool:
+    """Check if a cleaned token matches any keyword via exact, prefix, or suffix match.
+
+    German compound words use both prefix compounds (e.g. 'Pouletschenkel' =
+    Poulet + Schenkel) and suffix compounds (e.g. 'Rauchlachs' = Rauch + Lachs).
+    We check both startswith and endswith for keywords of 4+ characters to avoid
+    false positives from short substrings.  Generic cut terms (filet, steak,
+    schnitzel) are excluded from suffix matching as they don't determine category.
     """
     cleaned = token.rstrip(",.;:()")
     if cleaned in keyword_set:
@@ -346,15 +522,21 @@ def _token_matches_keywords(token: str, keyword_set: frozenset[str]) -> bool:
         for part in cleaned.split("-"):
             if part in keyword_set:
                 return True
-            # Prefix match for compound sub-parts
+            # Prefix and suffix match for compound sub-parts
             for kw in keyword_set:
-                if len(kw) >= 4 and part.startswith(kw):
-                    return True
+                if len(kw) >= 4:
+                    if part.startswith(kw):
+                        return True
+                    if kw not in _SUFFIX_MATCH_EXCLUDE and part.endswith(kw):
+                        return True
     else:
-        # Prefix match for German compound words (e.g. "pouletschenkel" starts with "poulet")
+        # Prefix and suffix match for German compound words
         for kw in keyword_set:
-            if len(kw) >= 4 and cleaned.startswith(kw):
-                return True
+            if len(kw) >= 4:
+                if cleaned.startswith(kw):
+                    return True
+                if kw not in _SUFFIX_MATCH_EXCLUDE and cleaned.endswith(kw):
+                    return True
     return False
 
 
@@ -392,6 +574,36 @@ def _raw_text_has_fish(ingredient_rows: list[dict]) -> bool:
     return False
 
 
+def _raw_text_protein_types(ingredient_rows: list[dict]) -> set[str]:
+    """Infer specific protein types from unresolved ingredient raw text.
+
+    Returns a set of specific protein types (e.g. "poultry", "beef", "fish")
+    by matching tokens against _KEYWORD_TO_PROTEIN. Only scans rows where
+    ingredient_id is None.
+    """
+    types: set[str] = set()
+    for row in ingredient_rows:
+        if row.get("ingredient_id") is not None:
+            continue
+        raw = row.get("raw_text", "")
+        tokens = raw.lower().split()
+        for token in tokens:
+            cleaned = token.rstrip(",.;:()")
+            # Exact match
+            if cleaned in _KEYWORD_TO_PROTEIN:
+                types.add(_KEYWORD_TO_PROTEIN[cleaned])
+                continue
+            # Prefix/suffix compound match
+            for kw, protein in _KEYWORD_TO_PROTEIN.items():
+                if len(kw) >= 4:
+                    if cleaned.startswith(kw) or (
+                        kw not in _SUFFIX_MATCH_EXCLUDE and cleaned.endswith(kw)
+                    ):
+                        types.add(protein)
+                        break
+    return types
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -413,32 +625,27 @@ def compute_primary_protein(ingredient_rows: list[dict]) -> str | None:
     """
     resolved = _resolve_ingredients(ingredient_rows)
     if not resolved:
-        # Nothing resolved — try raw text fallback
-        raw_meat = _raw_text_has_meat(ingredient_rows)
-        raw_fish = _raw_text_has_fish(ingredient_rows)
-        if raw_meat and raw_fish:
-            return "mixed"
-        if raw_meat:
-            return "meat"
-        if raw_fish:
-            return "fish"
-        return None
+        # Nothing resolved — try specific protein inference from raw text
+        protein_types = _raw_text_protein_types(ingredient_rows)
+        if not protein_types:
+            return None
+        if len(protein_types) == 1:
+            return protein_types.pop()
+        # Multiple types detected — check if they collapse to one family
+        # (e.g. "fish" and "seafood" are both aquatic)
+        return "mixed"
 
     meats = [(r, e) for r, e in resolved if e.category == "meat"]
     fishes = [(r, e) for r, e in resolved if e.category == "fish"]
 
     if not meats and not fishes:
-        # Fallback: scan unresolved ingredient raw text for meat/fish keywords
-        raw_meat = _raw_text_has_meat(ingredient_rows)
-        raw_fish = _raw_text_has_fish(ingredient_rows)
-        if raw_meat or raw_fish:
-            if raw_meat and raw_fish:
-                return "mixed"
-            if raw_meat:
-                return "meat"
-            return "fish"
-
-        return None
+        # Fallback: infer specific protein from unresolved raw text
+        protein_types = _raw_text_protein_types(ingredient_rows)
+        if not protein_types:
+            return None
+        if len(protein_types) == 1:
+            return protein_types.pop()
+        return "mixed"
 
     proteins = meats + fishes
     subs: set[str] = set()

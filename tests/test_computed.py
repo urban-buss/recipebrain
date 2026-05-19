@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from recipebrain.computed import (
+    _FISH_RAW_KEYWORDS,
+    _MEAT_RAW_KEYWORDS,
+    _token_matches_keywords,
     build_computed_tags,
     compute_cooking_method,
     compute_dietary_flags,
@@ -115,9 +118,9 @@ class TestComputePrimaryProtein:
         assert compute_primary_protein(rows) is None
 
     def test_unresolved_meat_raw_text_fallback(self):
-        """Unresolved ingredient with meat keyword in raw_text → 'meat'."""
+        """Unresolved ingredient with meat keyword in raw_text → specific type."""
         rows = [_ingredient_row(ingredient_id=None, raw_text="800 g Pouletschenkel-Steaks")]
-        assert compute_primary_protein(rows) == "meat"
+        assert compute_primary_protein(rows) == "poultry"
 
     def test_unresolved_fish_raw_text_fallback(self):
         """Unresolved ingredient with fish keyword in raw_text → 'fish'."""
@@ -133,17 +136,37 @@ class TestComputePrimaryProtein:
         assert compute_primary_protein(rows) == "mixed"
 
     def test_resolved_veggie_with_unresolved_meat_fallback(self):
-        """Resolved vegetables + unresolved meat raw text → 'meat'."""
+        """Resolved vegetables + unresolved meat raw text → specific type."""
         rows = [
             _ingredient_row(ingredient_id=40),  # onion (resolved)
             _ingredient_row(ingredient_id=None, raw_text="800 g Rindfleisch"),
         ]
-        assert compute_primary_protein(rows) == "meat"
+        assert compute_primary_protein(rows) == "beef"
 
     def test_unresolved_no_meat_keywords_returns_none(self):
         """Unresolved ingredient without meat/fish keywords → None."""
         rows = [_ingredient_row(ingredient_id=None, raw_text="2 cm Ingwer")]
         assert compute_primary_protein(rows) is None
+
+    def test_unresolved_raw_text_returns_beef(self):
+        """Unresolved 'Rindsfilet' → 'beef' via prefix match."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="400 g Rindsfilet")]
+        assert compute_primary_protein(rows) == "beef"
+
+    def test_unresolved_raw_text_returns_pork(self):
+        """Unresolved 'Schweinshaxe' → 'pork' via prefix match."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="1 kg Schweinshaxe")]
+        assert compute_primary_protein(rows) == "pork"
+
+    def test_unresolved_raw_text_returns_seafood(self):
+        """Unresolved 'Crevetten' → 'seafood'."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="150 g Crevetten")]
+        assert compute_primary_protein(rows) == "seafood"
+
+    def test_unresolved_generic_meat_stays_generic(self):
+        """Unresolved 'Hackfleisch' → 'meat' (no specific sub-type)."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="500 g Hackfleisch")]
+        assert compute_primary_protein(rows) == "meat"
 
     def test_empty_ingredients(self):
         assert compute_primary_protein([]) is None
@@ -491,14 +514,80 @@ class TestComputeFoodGroups:
     def test_non_vocab_tags_filtered(self):
         """Pairing tags outside the food-group vocab are dropped.
 
-        Carrot's pairing_tags ("root-veg", "sweet") are not food groups —
-        "sweet" is now a taste descriptor, not a food group.
+        Carrot's pairing_tags include "root_veg" (a food group) and "sweet"
+        (a taste descriptor). Only "root_veg" should appear in food_groups.
         """
         rows = [_ingredient_row(ingredient_id=42)]  # carrot
         groups = compute_food_groups(rows, None, None)
-        assert "root-veg" not in groups
+        assert "root_veg" in groups
         assert "sweet" not in groups
-        assert groups == []
+
+    def test_legume_food_group(self):
+        """Lentils (id=265) should produce 'legume' food group."""
+        rows = [_ingredient_row(ingredient_id=265)]
+        groups = compute_food_groups(rows, None, None)
+        assert "legume" in groups
+
+    def test_grain_food_group(self):
+        """Rice (id=90) should produce 'grain' food group."""
+        rows = [_ingredient_row(ingredient_id=90)]
+        groups = compute_food_groups(rows, None, None)
+        assert "grain" in groups
+
+    def test_mushroom_food_group(self):
+        """Mushroom (id=48) should produce 'mushroom' food group."""
+        rows = [_ingredient_row(ingredient_id=48)]
+        groups = compute_food_groups(rows, None, None)
+        assert "mushroom" in groups
+
+    def test_tofu_food_group(self):
+        """Tofu (id=269) should produce 'tofu' and 'vegan' food groups."""
+        rows = [_ingredient_row(ingredient_id=269)]
+        groups = compute_food_groups(rows, None, None)
+        assert "tofu" in groups
+        assert "vegan" in groups
+
+    def test_nut_food_group(self):
+        """Almond (id=230) should produce 'nut' food group."""
+        rows = [_ingredient_row(ingredient_id=230)]
+        groups = compute_food_groups(rows, None, None)
+        assert "nut" in groups
+
+    def test_root_veg_food_group(self):
+        """Potato (id=43) should produce 'root_veg' food group."""
+        rows = [_ingredient_row(ingredient_id=43)]
+        groups = compute_food_groups(rows, None, None)
+        assert "root_veg" in groups
+
+    def test_cheese_and_grain_combined(self):
+        """Recipe with cheese and grain gets both food groups."""
+        rows = [
+            _ingredient_row(ingredient_id=23),  # gruyère — cheese
+            _ingredient_row(ingredient_id=91),  # pasta — grain
+        ]
+        groups = compute_food_groups(rows, None, None)
+        assert "cheese" in groups
+        assert "grain" in groups
+
+    def test_quinoa_contributes_vegan_and_grain(self):
+        """Quinoa (id=246) should produce 'vegan' and 'grain' food groups."""
+        rows = [_ingredient_row(ingredient_id=246)]
+        groups = compute_food_groups(rows, None, None)
+        assert "vegan" in groups
+        assert "grain" in groups
+
+    def test_coconut_milk_contributes_vegan(self):
+        """Coconut milk (id=97) should produce 'vegan' food group."""
+        rows = [_ingredient_row(ingredient_id=97)]
+        groups = compute_food_groups(rows, None, None)
+        assert "vegan" in groups
+
+    def test_almond_flour_contributes_vegan_and_nut(self):
+        """Almond flour (id=529) should produce 'vegan' and 'nut' food groups."""
+        rows = [_ingredient_row(ingredient_id=529)]
+        groups = compute_food_groups(rows, None, None)
+        assert "vegan" in groups
+        assert "nut" in groups
 
 
 # ---------------------------------------------------------------------------
@@ -610,3 +699,108 @@ class TestBuildComputedTags:
         )
         assert tags.count("poultry") == 1
         assert "cheese" in tags
+
+
+# ---------------------------------------------------------------------------
+# _token_matches_keywords — suffix compound matching (issue #071)
+# ---------------------------------------------------------------------------
+
+
+class TestTokenMatchesKeywords:
+    """_token_matches_keywords — prefix and suffix compound matching."""
+
+    def test_exact_match(self):
+        assert _token_matches_keywords("lachs", _FISH_RAW_KEYWORDS) is True
+
+    def test_prefix_compound_pouletschenkel(self):
+        """Existing prefix matching must still work."""
+        assert _token_matches_keywords("pouletschenkel", _MEAT_RAW_KEYWORDS) is True
+
+    def test_suffix_compound_rauchlachs(self):
+        """Suffix compound 'rauchlachs' should match via 'lachs'."""
+        assert _token_matches_keywords("rauchlachs", _FISH_RAW_KEYWORDS) is True
+
+    def test_suffix_compound_raeucherfisch(self):
+        """Suffix compound 'räucherfisch' should match via 'fisch'."""
+        assert _token_matches_keywords("räucherfisch", _FISH_RAW_KEYWORDS) is True
+
+    def test_suffix_compound_stockfisch(self):
+        """'stockfisch' should match via 'fisch'."""
+        assert _token_matches_keywords("stockfisch", _FISH_RAW_KEYWORDS) is True
+
+    def test_suffix_compound_backfisch(self):
+        """'backfisch' should match via 'fisch'."""
+        assert _token_matches_keywords("backfisch", _FISH_RAW_KEYWORDS) is True
+
+    def test_suffix_compound_bratfisch(self):
+        """'bratfisch' should match via 'fisch'."""
+        assert _token_matches_keywords("bratfisch", _FISH_RAW_KEYWORDS) is True
+
+    def test_suffix_no_false_positive_festfleischige(self):
+        """'festfleischige' does NOT end with 'fleisch' — no false positive."""
+        assert _token_matches_keywords("festfleischige", _MEAT_RAW_KEYWORDS) is False
+
+    def test_suffix_no_false_positive_festfleischig(self):
+        """'festfleischig' (without adjective suffix) also safe."""
+        assert _token_matches_keywords("festfleischig", _MEAT_RAW_KEYWORDS) is False
+
+    def test_festfleischige_birnen_stays_vegetarian(self):
+        """Integration: recipe with 'festfleischige Birnen' remains vegetarian."""
+        rows = [_ingredient_row(ingredient_id=None, raw_text="500 g festfleischige Birnen")]
+        flags = compute_dietary_flags(rows, total_minutes=20)
+        # No meat keywords detected → stays quick (only flag when unresolved)
+        assert "vegetarian" not in flags  # unresolved = no claim
+        assert "quick" in flags
+
+    def test_suffix_no_false_positive_fleischige(self):
+        """'fleischige' starts with 'fleisch' so it matches via prefix (pre-existing)."""
+        # This is a known edge case (see issue #076): "fleischige" (fleshy/meaty
+        # texture adjective) matches because it starts with "fleisch". In practice,
+        # the full compound "festfleischige" does NOT match (tested separately).
+        assert _token_matches_keywords("fleischige", _MEAT_RAW_KEYWORDS) is True
+
+    def test_hyphenated_suffix_compound(self):
+        """'rauch-lachs' (hypothetical hyphenated form) should match."""
+        assert _token_matches_keywords("rauch-lachs", _FISH_RAW_KEYWORDS) is True
+
+    def test_short_keyword_no_match(self):
+        """Keywords shorter than 4 chars should not trigger prefix/suffix matching."""
+        short_set = frozenset({"ei"})  # 2 chars
+        assert _token_matches_keywords("spiegelei", short_set) is False
+
+    def test_trailing_punctuation_stripped(self):
+        """Trailing punctuation is stripped before matching."""
+        assert _token_matches_keywords("rauchlachs,", _FISH_RAW_KEYWORDS) is True
+
+    def test_filet_excluded_from_suffix_matching(self):
+        """'lachsfilet' should match fish (prefix 'lachs'), not meat (suffix 'filet')."""
+        assert _token_matches_keywords("lachsfilet", _FISH_RAW_KEYWORDS) is True
+        assert _token_matches_keywords("lachsfilet", _MEAT_RAW_KEYWORDS) is False
+
+    def test_filet_exact_still_matches_meat(self):
+        """Standalone 'filet' should still match meat as an exact keyword."""
+        assert _token_matches_keywords("filet", _MEAT_RAW_KEYWORDS) is True
+
+    def test_unresolved_rauchlachs_not_vegetarian(self):
+        """Integration: recipe with 'Rauchlachs' must not be vegetarian."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="200 g Rauchlachs"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags
+        assert "vegan" not in flags
+
+    def test_unresolved_rauchlachs_protein_fish(self):
+        """Integration: 'Rauchlachs' should classify as fish protein."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="200 g Rauchlachs"),
+        ]
+        assert compute_primary_protein(rows) == "fish"
+
+    def test_unresolved_raeucherfisch_not_vegetarian(self):
+        """Integration: recipe with 'Räucherfisch' must not be vegetarian."""
+        rows = [
+            _ingredient_row(ingredient_id=None, raw_text="300 g Räucherfisch"),
+        ]
+        flags = compute_dietary_flags(rows)
+        assert "vegetarian" not in flags

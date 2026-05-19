@@ -247,17 +247,71 @@ def _infer_course(
     return None
 
 
+# German-language cuisine synonyms mapped to canonical English values.
+# Used as a shared fallback in _normalise_cuisine so any source returning
+# raw German text gets normalised consistently.
+_GERMAN_CUISINE_SYNONYMS: dict[str, str] = {
+    "schweizer küche": "swiss",
+    "schweizer": "swiss",
+    "asiatische küche": "asian",
+    "asiatisch": "asian",
+    "mediterrane küche": "mediterranean",
+    "mediterran": "mediterranean",
+    "italienische küche": "italian",
+    "italienisch": "italian",
+    "indisch": "indian",
+    "spanisch": "spanish",
+    "französisch": "french",
+    "japanisch": "japanese",
+    "chinesisch": "chinese",
+    "griechisch": "greek",
+    "koreanisch": "korean",
+    "vietnamesisch": "vietnamese",
+    "mexikanisch": "mexican",
+    "orientalisch": "middle-eastern",
+    "russisch": "russian",
+    "ungarisch": "hungarian",
+    "lateinamerikanisch": "latin",
+    "südamerikanisch": "latin",
+}
+
+# Non-cuisine keywords that sources may incorrectly return as cuisine values.
+_CUISINE_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "root",
+        "schnelle küche",
+        "familienküche",
+        "raclette",
+        "zmittag",
+        "znacht",
+        "zmorge",
+        "backen",
+        "grillieren",
+        "apéro",
+        "dessert",
+        "vorspeise",
+        "hauptgericht",
+    }
+)
+
+
 def _normalise_cuisine(raw: str) -> str | None:
     """Normalise a cuisine string to lowercase, rejecting category tag dumps.
 
-    Returns None for empty strings or values that look like concatenated
-    category tags (contain commas) rather than a single cuisine identifier.
+    Returns None for empty strings, values that look like concatenated
+    category tags (contain commas), or values in the blocklist (non-cuisine
+    keywords). Maps known German synonyms to canonical English values.
 
     Examples:
         >>> _normalise_cuisine("Swiss")
         'swiss'
         >>> _normalise_cuisine("Italian")
         'italian'
+        >>> _normalise_cuisine("schweizer küche")
+        'swiss'
+        >>> _normalise_cuisine("asiatische küche")
+        'asian'
+        >>> _normalise_cuisine("Schnelle Küche")
         >>> _normalise_cuisine("")
         >>> _normalise_cuisine("milchprodukte, käse, eier")
     """
@@ -267,6 +321,13 @@ def _normalise_cuisine(raw: str) -> str | None:
     # Reject multi-value category dumps (real cuisine is a single term)
     if "," in stripped:
         return None
+    # Reject non-cuisine keywords
+    if stripped in _CUISINE_BLOCKLIST:
+        return None
+    # Map German synonyms to canonical English
+    mapped = _GERMAN_CUISINE_SYNONYMS.get(stripped)
+    if mapped:
+        return mapped
     return stripped
 
 
@@ -423,6 +484,30 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
             re.IGNORECASE,
         ),
         "american",
+    ),
+    # Russian / Eastern European
+    (
+        re.compile(
+            r"stroganoff|borschtsch|blini|pelmeni|pirog",
+            re.IGNORECASE,
+        ),
+        "russian",
+    ),
+    # Hungarian
+    (
+        re.compile(
+            r"gulasch|goulash|gul[áa]s|langos|lángos",
+            re.IGNORECASE,
+        ),
+        "hungarian",
+    ),
+    # Latin American / South American
+    (
+        re.compile(
+            r"s[üu]damerika|lateinamerika|ceviche|empanada|chimichurri",
+            re.IGNORECASE,
+        ),
+        "latin",
     ),
 ]
 
@@ -815,17 +900,35 @@ def build_recipe_row(
 
     # Detect source duplication: when prep == cook, the source duplicated a
     # single duration into both fields (common pattern on Betty Bossi and
-    # similar sites). Correct by using the value as total_minutes only and
-    # nulling out the duplicated prep/cook.
+    # similar sites). The duplicated value represents active/prep time.
+    # When totalTime is available and exceeds prep, derive passive cook time.
     total = None
     if prep is not None and cook is not None and prep == cook:
-        total = raw_total if raw_total is not None else prep
-        prep = None
-        cook = None
+        if raw_total is not None and raw_total > prep:
+            # Derive passive cook time from total minus active prep.
+            cook = raw_total - prep
+            total = raw_total
+        elif raw_total is not None:
+            # Total <= active time — no meaningful passive cook time.
+            cook = None
+            total = raw_total
+        else:
+            # No total available; use duplicated value as total.
+            cook = None
+            total = prep
     elif prep is not None and cook is not None:
         total = prep + cook
     elif prep is not None:
-        total = prep
+        # Only prep available — use totalTime if present (e.g. Fooby provides
+        # prepTime=Aktiv and totalTime=Gesamt but omits cookTime).
+        if raw_total is not None and raw_total > prep:
+            cook = raw_total - prep
+            total = raw_total
+        elif raw_total is not None:
+            # totalTime present but not larger than prep — no passive cook time.
+            total = raw_total
+        else:
+            total = prep
     elif cook is not None:
         total = cook
     elif raw_total is not None:
@@ -1021,6 +1124,15 @@ _ISO_DURATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+_TIME_TEXT_HOURS_RE = re.compile(
+    r"(\d+)\s*(?:h|Std|Stunden?)\.?",
+    re.IGNORECASE,
+)
+_TIME_TEXT_MINUTES_RE = re.compile(
+    r"(\d+)\s*(?:min|Min|Minuten?)\.?",
+    re.IGNORECASE,
+)
+
 _MAX_RECIPE_MINUTES = 10_080  # 7 days — generous upper bound
 
 _INT16_MAX = 32_767
@@ -1036,6 +1148,9 @@ def _clamp_int16(value: int | None) -> int | None:
 def _parse_iso_duration(iso: str) -> int | None:
     """Parse an ISO 8601 duration string into total minutes.
 
+    Falls back to German plain-text time formats (e.g. "45 min", "1 h 30 min")
+    when the ISO regex does not match.
+
     Examples:
         >>> _parse_iso_duration("PT15M")
         15
@@ -1043,15 +1158,20 @@ def _parse_iso_duration(iso: str) -> int | None:
         90
         >>> _parse_iso_duration("PT2H")
         120
+        >>> _parse_iso_duration("45 min")
+        45
+        >>> _parse_iso_duration("1 h 35 min")
+        95
+        >>> _parse_iso_duration("2 Std 10 min")
+        130
         >>> _parse_iso_duration("")
-        None
     """
     if not iso or not iso.strip():
         return None
 
     match = _ISO_DURATION_RE.match(iso.strip())
     if not match:
-        return None
+        return _parse_time_text(iso)
 
     hours = int(match.group(1) or 0)
     minutes = int(match.group(2) or 0)
@@ -1062,6 +1182,40 @@ def _parse_iso_duration(iso: str) -> int | None:
         logger.warning("Duration %s exceeds cap (%d min), treating as invalid", iso, total)
         return None
     return total if total > 0 else None
+
+
+def _parse_time_text(text: str) -> int | None:
+    """Parse German plain-text time into minutes.
+
+    Handles formats produced by HTML-based adapters (Schweizer Fleisch,
+    Swissmilk) that return human-readable strings instead of ISO 8601.
+
+    Examples:
+        >>> _parse_time_text("45 min")
+        45
+        >>> _parse_time_text("1 h 35 min")
+        95
+        >>> _parse_time_text("2 Std 10 min")
+        130
+        >>> _parse_time_text("2 h")
+        120
+        >>> _parse_time_text("ca. 30 Min.")
+        30
+        >>> _parse_time_text("")
+    """
+    if not text or not text.strip():
+        return None
+    cleaned = text.strip()
+    h_match = _TIME_TEXT_HOURS_RE.search(cleaned)
+    m_match = _TIME_TEXT_MINUTES_RE.search(cleaned)
+    if not h_match and not m_match:
+        return None
+    hours = int(h_match.group(1)) if h_match else 0
+    minutes = int(m_match.group(1)) if m_match else 0
+    total = hours * 60 + minutes
+    if total <= 0 or total > _MAX_RECIPE_MINUTES:
+        return None
+    return total
 
 
 def normalise_title(title: str) -> str:
@@ -1213,6 +1367,47 @@ _KEYWORD_FACET_MAP: dict[str, str] = {
     "getränke": "course",
 }
 
+# Maps German keyword slugs to their canonical English tag key so that
+# keywords like "Hauptgericht" merge with the classification-derived "main"
+# tag rather than creating a parallel German entry.
+_KEYWORD_TO_CANONICAL_TAG: dict[str, str] = {
+    # course
+    "hauptgericht": "main",
+    "vorspeise": "starter",
+    "beilage": "side",
+    "dessert": "dessert",
+    "getränke": "drink",
+    "frühstück": "breakfast",
+    # dietary
+    "vegetarisch": "vegetarian",
+    "vegan": "vegan",
+    "glutenfrei": "gluten-free",
+    "laktosefrei": "dairy-free",
+    # method
+    "grillieren": "grilled",
+    "backen": "baked",
+    "dämpfen": "steamed",
+    "schmoren": "braised",
+}
+
+# Keywords that produce noise tags with no useful canonical equivalent.
+# These are suppressed entirely rather than stored as free-form tags.
+_TAG_KEYWORD_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "sommer",
+        "winter",
+        "frühling",
+        "herbst",
+        "zmittag",
+        "znacht",
+        "zmorge",
+        "schnelle-küche",
+        "familienküche",
+        "guetzli-weihnachten",
+        "backen-süss",
+    }
+)
+
 
 def _slugify_tag(tag: str) -> str:
     """Normalise a tag string to a lowercase slug (letters, digits, hyphens).
@@ -1239,6 +1434,11 @@ def build_tag_rows_from_keywords(
     recipes via a junction table. Each unique keyword becomes one tag row
     (deduplicated by slug key). Tags are assigned facets based on the
     keyword-to-facet mapping.
+
+    German keywords that have a canonical English equivalent (e.g.
+    ``"Hauptgericht"`` → ``"main"``) are merged into the canonical tag
+    rather than creating a parallel entry.  Keywords in the blocklist are
+    suppressed entirely.
 
     Args:
         keywords_by_recipe: List of (recipe_id, keywords) tuples.
@@ -1273,22 +1473,31 @@ def build_tag_rows_from_keywords(
             if not key:
                 continue
 
+            # Block noise keywords
+            if key in _TAG_KEYWORD_BLOCKLIST:
+                continue
+
+            # Resolve to canonical English key if available
+            canonical_key = _KEYWORD_TO_CANONICAL_TAG.get(key)
+            resolved_key = canonical_key if canonical_key else key
+
             # Create tag if not already known
-            if key not in tag_map and key not in existing:
+            if resolved_key not in tag_map and resolved_key not in existing:
                 facet = _KEYWORD_FACET_MAP.get(kw.strip().lower(), "free")
-                tag_map[key] = {
+                tag_map[resolved_key] = {
                     "id": tag_id,
-                    "key": key,
-                    "display": kw.strip(),
+                    "key": resolved_key,
+                    "display": canonical_key if canonical_key else kw.strip(),
                     "facet": facet,
                 }
                 tag_id += 1
 
             # Build recipe_tag link
-            if key in tag_map:
-                recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": tag_map[key]["id"]})
-            elif key in existing:
-                recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": existing[key]})
+            if resolved_key in tag_map:
+                link_id = tag_map[resolved_key]["id"]
+                recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": link_id})
+            elif resolved_key in existing:
+                recipe_tag_rows.append({"recipe_id": recipe_id, "tag_id": existing[resolved_key]})
 
     tag_rows = list(tag_map.values())
     return tag_rows, recipe_tag_rows

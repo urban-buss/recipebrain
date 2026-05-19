@@ -4,6 +4,15 @@ import os
 import subprocess
 import sys
 
+import pytest
+
+try:
+    import PIL  # noqa: F401
+
+    _pil_available = True
+except ImportError:
+    _pil_available = False
+
 
 def test_help_exits_zero():
     result = subprocess.run(
@@ -307,6 +316,7 @@ class TestCliNoConfig:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not _pil_available, reason="PIL not installed")
 class TestEtlDryRun:
     def test_limit_zero_returns_zero_despite_errors(self):
         """ETL with --limit 0 should exit 0 even if discovery has errors."""

@@ -26,6 +26,86 @@ logger = logging.getLogger(__name__)
 _SITEMAP_URL = "https://fooby.ch/sitemap.xml"
 _RECIPE_URL_PATTERNS = ("/rezepte/", "/recettes/", "/ricette/")
 
+# Mapping from lowercased Fooby cuisine keyword/tag text to canonical English
+# cuisine value.  Includes both English and German language variants.
+# Keys NOT in this map are silently ignored by _extract_cuisine_from_tags().
+_FOOBY_CUISINE_MAP: dict[str, str] = {
+    "italian": "italian",
+    "italienisch": "italian",
+    "italienische küche": "italian",
+    "swiss": "swiss",
+    "schweizer": "swiss",
+    "schweizer küche": "swiss",
+    "asian": "asian",
+    "asiatisch": "asian",
+    "asiatische küche": "asian",
+    "mexican": "mexican",
+    "mexikanisch": "mexican",
+    "indian": "indian",
+    "indisch": "indian",
+    "french": "french",
+    "französisch": "french",
+    "thai": "thai",
+    "japanese": "japanese",
+    "japanisch": "japanese",
+    "greek": "greek",
+    "griechisch": "greek",
+    "orientalisch": "middle-eastern",
+    "mediterran": "mediterranean",
+    "mediterranean": "mediterranean",
+    "mediterrane küche": "mediterranean",
+    "chinese": "chinese",
+    "chinesisch": "chinese",
+    "korean": "korean",
+    "koreanisch": "korean",
+    "vietnamese": "vietnamese",
+    "vietnamesisch": "vietnamese",
+    "spanish": "spanish",
+    "spanisch": "spanish",
+}
+
+# Coop retail brand prefixes embedded in JSON-LD recipeIngredient text.
+# Stripping these allows the normaliser to match the actual ingredient name.
+_COOP_BRAND_PREFIXES: tuple[str, ...] = (
+    "Fine Food ",
+    "Naturaplan ",
+    "Prix Garantie ",
+    "Betty Bossi ",
+)
+
+
+def _strip_brand_prefix(text: str) -> str:
+    """Remove known Coop retail brand prefixes from ingredient text."""
+    for prefix in _COOP_BRAND_PREFIXES:
+        if text.startswith(prefix):
+            return text[len(prefix) :]
+    return text
+
+
+# Equipment keywords that appear in Fooby's recipeIngredient field but are
+# not food ingredients. Substring match (case-insensitive).
+_EQUIPMENT_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "schnur",
+        "grillholz",
+        "holzbrettchen",
+        "alu-grill",
+        "grillschalen",
+        "spiesschen",
+        "spiess",
+        "backpapier",
+        "alufolie",
+        "frischhaltefolie",
+        "zahnstocher",
+    }
+)
+
+
+def _is_equipment(text: str) -> bool:
+    """Return True if the ingredient text looks like cooking equipment."""
+    lower = text.lower()
+    return any(kw in lower for kw in _EQUIPMENT_KEYWORDS)
+
 
 class FoobyAdapter(SourceAdapter):
     """Source adapter for fooby.ch recipes."""
@@ -87,6 +167,12 @@ class FoobyAdapter(SourceAdapter):
         # Use the first Recipe found on the page
         language = _detect_language(url)
         raw = parse_recipe(recipes[0], source_url=url, language=language)
+
+        # Strip Coop retail brand prefixes from ingredient text
+        raw.ingredients_raw = [_strip_brand_prefix(ing) for ing in raw.ingredients_raw]
+
+        # Remove cooking equipment / non-food items from ingredient list
+        raw.ingredients_raw = [ing for ing in raw.ingredients_raw if not _is_equipment(ing)]
 
         # Supplement with HTML extraction for classification when JSON-LD is incomplete
         tree = HTMLParser(response.text)
@@ -216,45 +302,25 @@ def _extract_category_from_breadcrumb(tree: HTMLParser) -> str:
 def _extract_cuisine_from_tags(tree: HTMLParser) -> str:
     """Extract cuisine from recipe tag links or meta keywords.
 
-    Scans tag links and meta keywords for known cuisine identifiers.
+    Scans tag links and meta keywords against ``_FOOBY_CUISINE_MAP`` and
+    returns the canonical English cuisine value.  Keywords not in the map
+    are silently ignored, preventing non-cuisine terms (e.g. "Schnelle
+    Küche", "Familienküche") from polluting the cuisine field.
 
     Examples:
         >>> from selectolax.parser import HTMLParser
         >>> html = '<div class="recipe-tags"><a href="/tag/asiatisch">Asiatisch</a></div>'
         >>> _extract_cuisine_from_tags(HTMLParser(html))
-        'Asiatisch'
+        'asian'
+        >>> html_blocked = '<meta name="keywords" content="Schnelle Küche,Hauptgericht"/>'
+        >>> _extract_cuisine_from_tags(HTMLParser(html_blocked))
+        ''
     """
-    cuisine_keywords = {
-        "italienisch",
-        "italian",
-        "swiss",
-        "schweizer",
-        "asiatisch",
-        "asian",
-        "mexikanisch",
-        "mexican",
-        "indisch",
-        "indian",
-        "französisch",
-        "french",
-        "thai",
-        "japanisch",
-        "japanese",
-        "griechisch",
-        "greek",
-        "orientalisch",
-        "mediterran",
-        "mediterranean",
-        "chinesisch",
-        "chinese",
-        "koreanisch",
-        "korean",
-        "vietnamesisch",
-    }
     for node in tree.css(".recipe-tags a, .tag a, [class*='tag'] a"):
         text = (node.text() or "").strip()
-        if text.lower() in cuisine_keywords:
-            return text
+        canonical = _FOOBY_CUISINE_MAP.get(text.lower())
+        if canonical:
+            return canonical
 
     # Fallback: scan meta keywords
     meta = tree.css_first("meta[name='keywords']")
@@ -262,6 +328,7 @@ def _extract_cuisine_from_tags(tree: HTMLParser) -> str:
         content = meta.attributes.get("content") or ""
         for kw in content.split(","):
             kw = kw.strip()
-            if kw.lower() in cuisine_keywords:
-                return kw
+            canonical = _FOOBY_CUISINE_MAP.get(kw.lower())
+            if canonical:
+                return canonical
     return ""
