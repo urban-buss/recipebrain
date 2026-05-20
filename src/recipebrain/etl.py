@@ -15,10 +15,11 @@ from pathlib import Path
 from recipebrain.exceptions import DataStaleError
 from recipebrain.images import download_recipe_images
 from recipebrain.query import invalidate_connection
-from recipebrain.settings import ImagesConfig, Settings
+from recipebrain.settings import ImagesConfig, ScrapingConfig, Settings
 from recipebrain.snapshot import create_snapshot
 from recipebrain.sources.base import RawRecipe, SourceAdapter
 from recipebrain.transform import (
+    _compute_content_hash,
     build_recipe_images_rows,
     build_recipe_ingredients_rows,
     build_recipe_row,
@@ -173,6 +174,16 @@ def _get_existing_urls(output_dir: Path) -> set[str]:
     try:
         table = read_table("recipes", output_dir)
         return set(table.column("source_url").to_pylist())
+    except Exception:
+        return set()
+
+
+def _get_existing_content_hashes(output_dir: Path) -> set[str]:
+    """Load existing content hashes to skip duplicate recipes."""
+    try:
+        table = read_table("recipes", output_dir)
+        hashes = table.column("content_hash").to_pylist()
+        return {h for h in hashes if h is not None}
     except Exception:
         return set()
 
@@ -362,6 +373,7 @@ def run_etl(
             batch_size=batch_size,
             images_config=settings.images,
             allowed_languages=allowed_languages,
+            scraping_config=settings.scraping,
         )
         results.append(result)
 
@@ -557,6 +569,7 @@ def _run_source(
     batch_size: int | None = None,
     images_config: ImagesConfig | None = None,
     allowed_languages: list[str] | None = None,
+    scraping_config: ScrapingConfig | None = None,
 ) -> EtlResult:
     """Run ETL for a single source adapter.
 
@@ -568,6 +581,7 @@ def _run_source(
             long-running scrapes so partial progress is saved to disk.
         allowed_languages: If set, skip recipes whose language is not in
             this list. Safety net for language filtering.
+        scraping_config: Scraping settings (retry/timeout config for discovery).
     """
     started_at = datetime.now(UTC)
     t0 = time.monotonic()
@@ -576,6 +590,7 @@ def _run_source(
     result = EtlResult(source=adapter.key)
     source_id = _get_source_id(adapter)
     existing_urls = _get_existing_urls(output_dir)
+    seen_hashes = _get_existing_content_hashes(output_dir)
     next_id = _next_recipe_id(output_dir)
     existing_tags, next_tag_id = _get_existing_tags(output_dir)
 
@@ -601,17 +616,37 @@ def _run_source(
 
     logger.info("ETL: discovering recipes from %s", adapter.key)
 
-    # Discover URLs
+    # Discover URLs — retry with exponential backoff on transient failures
+    max_retries = scraping_config.max_discovery_retries if scraping_config else 3
     urls: list[str] = []
-    try:
-        urls = list(adapter.discover())
-        result.discovered = len(urls)
-    except Exception as exc:
-        logger.error("ETL: discovery failed for %s: %s", adapter.key, exc)
-        result.errors += 1
-        result.error_details.append(f"Discovery failed: {exc}")
-        _finish_etl_run(run_id, result, t0, "failed", output_dir)
-        return result
+    for attempt in range(max_retries):
+        try:
+            urls = list(adapter.discover())
+            result.discovered = len(urls)
+            break
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                wait = 2**attempt * 5  # 5s, 10s, 20s
+                logger.warning(
+                    "ETL: discovery attempt %d/%d failed for %s (%s), retrying in %ds",
+                    attempt + 1,
+                    max_retries,
+                    adapter.key,
+                    exc,
+                    wait,
+                )
+                time.sleep(wait)
+            else:
+                logger.error(
+                    "ETL: discovery failed for %s after %d attempts: %s",
+                    adapter.key,
+                    max_retries,
+                    exc,
+                )
+                result.errors += 1
+                result.error_details.append(f"Discovery failed: {exc}")
+                _finish_etl_run(run_id, result, t0, "failed", output_dir)
+                return result
 
     logger.info("ETL: found %d URLs from %s", len(urls), adapter.key)
 
@@ -648,6 +683,14 @@ def _run_source(
             if not _validate_recipe_content(raw, url):
                 result.validation_skipped += 1
                 continue
+
+            # Content-hash dedup — skip recipes with identical content
+            content_hash = _compute_content_hash(raw)
+            if content_hash in seen_hashes:
+                logger.debug("ETL: skipping duplicate content_hash for %s", url)
+                result.skipped += 1
+                continue
+            seen_hashes.add(content_hash)
 
             recipe_id = next_id
             next_id += 1

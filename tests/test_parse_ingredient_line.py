@@ -375,3 +375,32 @@ class TestShimImport:
         assert result.quantity == 200.0
         assert result.unit == "g"
         assert result.ingredient == "Mehl"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Päckchen unit (issue #081)
+# ---------------------------------------------------------------------------
+
+
+class TestPaeckchenUnit:
+    """Issue #081: Päckchen recognised as unit (maps to Packung)."""
+
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            (
+                "1 Päckchen Vanillezucker",
+                ParsedIngredient(1.0, "Packung", "Vanillezucker", None),
+            ),
+            (
+                "½ Päckchen Backpulver",
+                ParsedIngredient(0.5, "Packung", "Backpulver", None),
+            ),
+            (
+                "2 Päckchen Hefe",
+                ParsedIngredient(2.0, "Packung", "Hefe", None),
+            ),
+        ],
+    )
+    def test_paeckchen_parsed_as_packung(self, line, expected):
+        assert parse_ingredient_line(line) == expected

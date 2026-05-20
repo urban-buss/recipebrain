@@ -996,3 +996,113 @@ class TestGlattAdjectiveStripping:
 
     def test_glatte_peterli(self) -> None:
         assert normalise_ingredient("0.5 glatte Peterli") == "parsley"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Swissmilk ingredient resolution (issue #081)
+# ---------------------------------------------------------------------------
+
+
+class TestSwissmilkAOPStripping:
+    """Issue #081: AOP/AOC/IGP quality labels stripped before matching."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("50 g Sbrinz AOP, gerieben", "cheese-sbrinz"),
+            ("100 g Gruyère AOP, gerieben", "cheese-gruyere"),
+            ("75 g Sbrinz AOP, gerieben", "cheese-sbrinz"),
+            ("50 g Gruyère AOP, gerieben", "cheese-gruyere"),
+            ("100 g Sbrinz AOP, gerieben", "cheese-sbrinz"),
+            ("Sbrinz AOP", "cheese-sbrinz"),
+            ("Gruyère AOC", "cheese-gruyere"),
+        ],
+    )
+    def test_aop_aoc_stripped(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected
+
+
+class TestSwissmilkParentheticalAlternative:
+    """Issue #081: Parenthetical alternatives filtered as non-ingredients."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "(oder Fertig-Butterkuchenteig)",
+            "(oder Fertig-Pizzateig)",
+            "(oder anderer Käse)",
+        ],
+    )
+    def test_parenthetical_alternative_returns_none(self, raw: str) -> None:
+        assert normalise_ingredient(raw) is None
+
+
+class TestSwissmilkBratcreme:
+    """Issue #081: Bratcrème catalogue entry resolves."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Bratcrème",
+            "Bratcreme",
+            "2 EL Bratcrème",
+            "1 EL Bratcrème",
+            "3 EL Bratcrème",
+        ],
+    )
+    def test_bratcreme_resolves(self, raw: str) -> None:
+        assert normalise_ingredient(raw) == "bratcreme"
+
+
+class TestSwissmilkButterAliases:
+    """Issue #081: Butterflocken/Butterflöckli resolve to butter."""
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Butterflocken",
+            "Butterflöckli",
+            "einige Butterflocken",
+        ],
+    )
+    def test_butter_flakes_resolve(self, raw: str) -> None:
+        assert normalise_ingredient(raw) == "butter"
+
+
+class TestSwissmilkSchweizerBranding:
+    """Issue #081: Standalone 'Schweizer' branding stripped before matching."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("100 g Schweizer Mascarpone", "mascarpone"),
+            ("250 g Schweizer Mascarpone", "mascarpone"),
+            ("Schweizer Mascarpone", "mascarpone"),
+        ],
+    )
+    def test_schweizer_branding_stripped(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected
+
+
+class TestSwissmilkZimtstaengel:
+    """Issue #081: Zimtstängel resolves to cinnamon."""
+
+    def test_zimtstaengel_bare(self) -> None:
+        assert normalise_ingredient("Zimtstängel") == "cinnamon"
+
+    def test_zimtstaengel_with_count(self) -> None:
+        assert normalise_ingredient("1 Zimtstängel") == "cinnamon"
+
+
+class TestSwissmilkPaeckchen:
+    """Issue #081: Päckchen recognized as unit, Vanillezucker resolves."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("1 Päckchen Vanillezucker", "vanilla"),
+            ("½ Päckchen Vanillezucker", "vanilla"),
+        ],
+    )
+    def test_paeckchen_vanillezucker(self, raw: str, expected: str) -> None:
+        assert normalise_ingredient(raw) == expected

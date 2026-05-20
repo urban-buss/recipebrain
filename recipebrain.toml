@@ -19,6 +19,8 @@ rate_limit_seconds = 2.0
 user_agent = "recipebrain/0.0.1 (personal use; +https://github.com/<owner>/recipebrain)"
 respect_robots_txt = true
 timeout_seconds = 30
+discovery_timeout_seconds = 120
+max_discovery_retries = 3
 
 # ── Sources ────────────────────────────────────────────────────────────────────
 # Enable/disable individual recipe sources. Each key maps to a SourceAdapter.

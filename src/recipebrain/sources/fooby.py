@@ -138,7 +138,8 @@ class FoobyAdapter(SourceAdapter):
         Only yields URLs whose language matches the configured languages.
         Defaults to German-only when no config is present.
         """
-        response = self._http.get(_SITEMAP_URL)
+        discovery_timeout = self._settings.scraping.discovery_timeout_seconds
+        response = self._http.get(_SITEMAP_URL, timeout=discovery_timeout)
         response.raise_for_status()
 
         configured_languages = _get_configured_languages(self._settings, self.key)

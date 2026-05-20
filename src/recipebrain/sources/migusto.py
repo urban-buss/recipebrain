@@ -58,7 +58,8 @@ class MigustoAdapter(SourceAdapter):
         Fetches the sitemap XML and filters for URLs containing the
         recipe path pattern.
         """
-        response = self._http.get(_SITEMAP_URL)
+        discovery_timeout = self._settings.scraping.discovery_timeout_seconds
+        response = self._http.get(_SITEMAP_URL, timeout=discovery_timeout)
         response.raise_for_status()
 
         urls = _parse_sitemap_urls(response.text)

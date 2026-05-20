@@ -1126,6 +1126,88 @@ class TestInferCuisineFromIngredients:
     def test_none_rows_returns_none(self):
         assert _infer_cuisine_from_ingredients(None) is None
 
+    def test_swiss_combination(self):
+        rows = [
+            {"raw_text": "200 g Gruyère, gerieben"},
+            {"raw_text": "2 dl Halbrahm"},
+            {"raw_text": "500 g Kartoffeln"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) == "swiss"
+
+    def test_swiss_insufficient_returns_none(self):
+        rows = [
+            {"raw_text": "100 g Gruyère"},
+            {"raw_text": "200 g Kartoffeln"},
+        ]
+        assert _infer_cuisine_from_ingredients(rows) is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: Expanded Swiss cuisine signals (issue #082)
+# ---------------------------------------------------------------------------
+
+
+class TestSwissCuisineExpanded:
+    """Issue #082: Expanded Swiss title patterns for cuisine inference."""
+
+    @pytest.mark.parametrize(
+        ("title", "expected"),
+        [
+            ("Rüeblikuchen", "swiss"),
+            ("Rüeblitorte", "swiss"),
+            ("Berner Platte", "swiss"),
+            ("Basler Läckerli", "swiss"),
+            ("Guetzli backen", "swiss"),
+            ("Mailänderli", "swiss"),
+            ("Brunsli-Rezept", "swiss"),
+            ("Fleischkäse im Blätterteig", "swiss"),
+            ("Cervelat-Salat", "swiss"),
+            ("Käseschnitte überbacken", "swiss"),
+            ("Hackbraten mit Sauce", "swiss"),
+            ("St. Galler Bratwurst", "swiss"),
+            ("Walliser Raclette", "swiss"),
+            ("Nusstorte", "swiss"),
+            ("Wähe mit Früchten", "swiss"),
+            ("Ghackets mit Hörnli", "swiss"),
+            # Non-Swiss still unclassified
+            ("Gemüsesuppe", None),
+            ("Linsensuppe", None),
+            ("Kartoffelpüree", None),
+            # Other cuisines not regressed
+            ("Spaghetti Carbonara", "italian"),
+            ("Pad Thai mit Crevetten", "thai"),
+            ("Chicken Tikka Masala", "indian"),
+        ],
+    )
+    def test_expanded_swiss_titles(self, title: str, expected: str | None) -> None:
+        assert _infer_cuisine("", title, []) == expected
+
+    def test_kartoffelgratin_with_swiss_ingredients(self) -> None:
+        result = _infer_cuisine(
+            "",
+            "Kartoffelgratin",
+            [],
+            ingredient_rows=[
+                {"raw_text": "500 g Kartoffeln"},
+                {"raw_text": "200 g Gruyère, gerieben"},
+                {"raw_text": "2 dl Halbrahm"},
+            ],
+        )
+        assert result == "swiss"
+
+    def test_generic_gratin_without_swiss_ingredients(self) -> None:
+        result = _infer_cuisine(
+            "",
+            "Kartoffelgratin",
+            [],
+            ingredient_rows=[
+                {"raw_text": "500 g Kartoffeln"},
+                {"raw_text": "200 g Käse"},
+                {"raw_text": "2 dl Rahm"},
+            ],
+        )
+        assert result is None
+
 
 class TestNormaliseDifficulty:
     @pytest.mark.parametrize(
