@@ -40,6 +40,8 @@ class ScrapingConfig:
     user_agent: str = "recipebrain/0.0.1 (personal use)"
     respect_robots_txt: bool = True
     timeout_seconds: int = 30
+    discovery_timeout_seconds: int = 120
+    max_discovery_retries: int = 3
 
 
 @dataclass(frozen=True)

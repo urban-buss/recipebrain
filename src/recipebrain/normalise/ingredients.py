@@ -229,7 +229,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "dairy",
         "fat",
         density=0.911,
-        aliases=["Bratbutter"],
+        aliases=["Bratbutter", "Butterflocken", "Butterflöckli"],
         tags=["dairy", "fat"],
     ),
     _ci(
@@ -1766,7 +1766,7 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         "spice",
         "dried",
         unit="TL",
-        aliases=["Zimtstange", "Zimtstangen", "Zimtpulver", "Stangenzimt"],
+        aliases=["Zimtstange", "Zimtstangen", "Zimtpulver", "Stangenzimt", "Zimtstängel"],
         tags=["spice", "sweet"],
     ),
     _ci(
@@ -4512,6 +4512,19 @@ SEED_CATALOGUE: list[CanonicalIngredient] = [
         aliases=["Kartoffelstock-Pulver", "Kartoffelstockflocken"],
         tags=["vegan"],
     ),
+    _ci(
+        553,
+        "bratcreme",
+        "Bratcrème",
+        "Crème à rôtir",
+        "Cooking cream",
+        "dairy",
+        "cream",
+        unit="EL",
+        density=1.0,
+        aliases=["Bratcreme", "Bratcrème"],
+        tags=["dairy", "cooking"],
+    ),
 ]
 
 # Public alias — documented name in the specification
@@ -4808,6 +4821,7 @@ _ADJECTIVES_DE: list[str] = [
     "genügend",
     "reichlich",
     "viel",
+    "einige",
     # Trailing qualifiers (Swiss-German "nature" = plain)
     "nature",
     "surchoix",
@@ -5251,9 +5265,18 @@ _PAREN_BRAND_RE = re.compile(
 # Handles cases like "(Bio)", "(MSC)", "(Bacon)" that _PAREN_BRAND_RE misses.
 _PAREN_ANY_RE = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
 
-# Strips Proviande "vom Schweizer [Animal]" branding qualifier used by schweizerfleisch.ch
+# Matches parenthetical alternative suggestions like "(oder Fertig-Butterkuchenteig)".
+# These are not real ingredients and should be skipped entirely.
+_ALTERNATIVE_RE = re.compile(r"^\s*\(oder\s", re.IGNORECASE)
+
+# Strips Proviande "vom Schweizer [Animal]" branding qualifier used by schweizerfleisch.ch,
+# AOP/AOC/IGP quality labels (e.g. "Sbrinz AOP"), and standalone "Schweizer" branding.
 _BRANDING_QUALIFIER_RE = re.compile(
-    r"\s+vom\s+Schweizer\s+(?:Kalb|Rind|Schwein|Poulet|Lamm|Geflügel)",
+    r"(?:"
+    r"\s+vom\s+Schweizer\s+(?:Kalb|Rind|Schwein|Poulet|Lamm|Geflügel)"
+    r"|\s+(?:AOP|AOC|IGP)\b"
+    r"|(?:^|\s)Schweizer(?=\s)"
+    r")",
     re.IGNORECASE,
 )
 
@@ -5269,7 +5292,7 @@ _QUANTITY_UNIT_RE = re.compile(
     r"|stück|stk|scheibe|scheiben|blatt|blätter"
     r"|zweig|zweige|zehe|zehen|dose|dosen"
     r"|becher|packung|pkg|tropfen|tasse|tassen"
-    r"|tranchen|päckli|packli|würfel|beutel|tube"
+    r"|tranchen|päckli|packli|würfel|beutel|tube|päckchen"
     # French units
     r"|c\.s\.|c\.c\.|cs|cc|pincee|pincées?|gouttes?"
     r"|tranche|tranches|bouquet|sachet|sachets"
@@ -5353,6 +5376,9 @@ def normalise_ingredient(raw_name: str) -> str | None:
         'butter'
         >>> normalise_ingredient("Xylophon")
     """
+    # Filter out parenthetical alternatives like "(oder Fertig-Butterkuchenteig)"
+    if _ALTERNATIVE_RE.match(raw_name):
+        return None
     # Strip all parenthetical content (brand, variety, weight, quality labels)
     raw_name = _PAREN_ANY_RE.sub("", raw_name).strip()
     # Strip Proviande "vom Schweizer [Animal]" branding qualifier

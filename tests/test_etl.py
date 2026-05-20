@@ -17,6 +17,7 @@ from recipebrain.etl import (  # noqa: E402
     EtlResult,
     _detect_interrupted_runs,
     _finish_etl_run,
+    _get_existing_content_hashes,
     _get_existing_urls,
     _get_source_adapters,
     _get_source_id,
@@ -30,7 +31,7 @@ from recipebrain.etl import (  # noqa: E402
     _warn_on_suspicious_ingredients,
     run_etl,
 )
-from recipebrain.settings import PathsConfig, Settings, SourceConfig
+from recipebrain.settings import PathsConfig, ScrapingConfig, Settings, SourceConfig
 from recipebrain.sources.base import RawRecipe, SourceAdapter
 from recipebrain.writer import read_table, update_table_row, write_table
 
@@ -186,8 +187,50 @@ class TestRunSource:
         adapter = FakeAdapter()
         adapter.discover = MagicMock(side_effect=RuntimeError("network down"))
 
-        result = _run_source(adapter, tmp_path)
+        # With max_discovery_retries=1, fails immediately without retry
+        scraping = ScrapingConfig(max_discovery_retries=1)
+        result = _run_source(adapter, tmp_path, scraping_config=scraping)
 
+        assert result.errors == 1
+        assert result.discovered == 0
+        assert "Discovery failed" in result.error_details[0]
+
+    def test_discovery_retries_on_transient_failure(self, tmp_path, monkeypatch):
+        """Discovery retries on first failure and succeeds on second attempt."""
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        adapter = FakeAdapter(urls=["https://example.com/r/1"])
+        original_discover = adapter.discover
+        call_count = 0
+
+        def flaky_discover():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("The read operation timed out")
+            return original_discover()
+
+        adapter.discover = flaky_discover
+
+        scraping = ScrapingConfig(max_discovery_retries=3)
+        result = _run_source(adapter, tmp_path, scraping_config=scraping)
+
+        assert call_count == 2
+        assert result.discovered == 1
+        assert result.fetched == 1
+        assert result.errors == 0
+
+    def test_discovery_fails_after_all_retries_exhausted(self, tmp_path, monkeypatch):
+        """Discovery fails gracefully after all retries are exhausted."""
+        monkeypatch.setattr(time, "sleep", lambda _: None)
+
+        adapter = FakeAdapter()
+        adapter.discover = MagicMock(side_effect=RuntimeError("The read operation timed out"))
+
+        scraping = ScrapingConfig(max_discovery_retries=3)
+        result = _run_source(adapter, tmp_path, scraping_config=scraping)
+
+        assert adapter.discover.call_count == 3
         assert result.errors == 1
         assert result.discovered == 0
         assert "Discovery failed" in result.error_details[0]
@@ -1369,3 +1412,136 @@ class TestFinishEtlRun:
         assert row["fetched"] == 3
         assert row["errors"] == 1
         assert "timeout" in row["error_summary"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Content hash dedup (issue #083)
+# ---------------------------------------------------------------------------
+
+
+class TestContentHashDedup:
+    """Issue #083: Duplicate content_hash recipes are skipped during ETL."""
+
+    def test_duplicate_content_skipped(self, tmp_path):
+        """Two recipes with identical content but different URLs → only one written."""
+        recipes = {
+            "https://example.com/r/1": RawRecipe(
+                title="Kartoffelsuppe",
+                ingredients_raw=["500 g Kartoffeln", "1 l Bouillon"],
+                steps_raw=["Kochen.", "Pürieren."],
+                source_url="https://example.com/r/1",
+            ),
+            "https://example.com/r/2": RawRecipe(
+                title="Kartoffelsuppe",
+                ingredients_raw=["500 g Kartoffeln", "1 l Bouillon"],
+                steps_raw=["Kochen.", "Pürieren."],
+                source_url="https://example.com/r/2",
+            ),
+        }
+        adapter = FakeAdapter(
+            urls=["https://example.com/r/1", "https://example.com/r/2"],
+            recipes=recipes,
+        )
+
+        result = _run_source(adapter, tmp_path)
+
+        assert result.discovered == 2
+        assert result.fetched == 1
+        assert result.skipped == 1
+
+        table = read_table("recipes", tmp_path)
+        assert table.num_rows == 1
+
+    def test_existing_hash_skipped(self, tmp_path):
+        """Recipe whose content_hash matches existing output is skipped."""
+        from recipebrain.transform import _compute_content_hash
+
+        raw = RawRecipe(
+            title="Existing Recipe",
+            ingredients_raw=["200 g Mehl"],
+            steps_raw=["Backen."],
+            source_url="https://example.com/r/old",
+        )
+        existing_hash = _compute_content_hash(raw)
+
+        # Pre-populate with a recipe that has this content_hash
+        write_table(
+            "recipes",
+            [
+                {
+                    "id": 1,
+                    "source_url": "https://example.com/r/old",
+                    "title": "Existing Recipe",
+                    "content_hash": existing_hash,
+                }
+            ],
+            tmp_path,
+        )
+
+        # New URL but same content
+        new_recipes = {
+            "https://example.com/r/new": RawRecipe(
+                title="Existing Recipe",
+                ingredients_raw=["200 g Mehl"],
+                steps_raw=["Backen."],
+                source_url="https://example.com/r/new",
+            ),
+        }
+        adapter = FakeAdapter(
+            urls=["https://example.com/r/new"],
+            recipes=new_recipes,
+        )
+
+        result = _run_source(adapter, tmp_path)
+
+        assert result.fetched == 0
+        assert result.skipped == 1
+
+    def test_different_content_not_deduped(self, tmp_path):
+        """Recipes with different content are both written."""
+        recipes = {
+            "https://example.com/r/1": RawRecipe(
+                title="Kartoffelsuppe",
+                ingredients_raw=["500 g Kartoffeln"],
+                steps_raw=["Kochen."],
+                source_url="https://example.com/r/1",
+            ),
+            "https://example.com/r/2": RawRecipe(
+                title="Linsensuppe",
+                ingredients_raw=["300 g Linsen"],
+                steps_raw=["Kochen."],
+                source_url="https://example.com/r/2",
+            ),
+        }
+        adapter = FakeAdapter(
+            urls=["https://example.com/r/1", "https://example.com/r/2"],
+            recipes=recipes,
+        )
+
+        result = _run_source(adapter, tmp_path)
+
+        assert result.fetched == 2
+        assert result.skipped == 0
+
+        table = read_table("recipes", tmp_path)
+        assert table.num_rows == 2
+
+
+class TestGetExistingContentHashes:
+    """Tests for _get_existing_content_hashes helper."""
+
+    def test_empty_dir(self, tmp_path):
+        assert _get_existing_content_hashes(tmp_path) == set()
+
+    def test_loads_hashes(self, tmp_path):
+        write_table(
+            "recipes",
+            [
+                {"id": 1, "content_hash": "abc123", "source_url": "u1"},
+                {"id": 2, "content_hash": "def456", "source_url": "u2"},
+                {"id": 3, "content_hash": None, "source_url": "u3"},
+            ],
+            tmp_path,
+        )
+        hashes = _get_existing_content_hashes(tmp_path)
+        assert hashes == {"abc123", "def456"}

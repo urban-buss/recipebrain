@@ -111,6 +111,8 @@ _UNITS: dict[str, str] = {
     "zweiglein": "Zweig",
     "päckli": "Packung",
     "packli": "Packung",
+    "päckchen": "Packung",
+    "packchen": "Packung",
     "würfel": "Stück",
     "wurfel": "Stück",
     "tranchen": "Scheibe",

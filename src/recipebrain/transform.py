@@ -340,7 +340,23 @@ _CUISINE_SIGNALS: list[tuple[re.Pattern[str], str]] = [
             r"r[öo]sti|fondue|raclette|bircher|z[üu]ri|berner|[äa]lpler"
             r"|zopf|älplermagronen|capuns|cholera|pizokel"
             r"|bündner|appenzeller|emmentaler|gruyère|vacherin"
-            r"|geschnetzeltes|züpfe|weggen|basler|luzerner",
+            r"|geschnetzeltes|züpfe|weggen|basler|luzerner"
+            # Cantonal/regional prefixes
+            r"|st\.?\s*galler|walliser|waadtl[äa]nder|freiburger|thurgauer"
+            r"|aargauer|solothurner|schaffhauser|glarner|nidwaldner"
+            # Classic Swiss baking
+            r"|guetzli|gu[eè]tzli|l[äa]ckerli|totenbeinli"
+            r"|r[üu]eblikuchen|r[üu]eblitorte|nusstorte|b[üu]ndner\s*nusstorte"
+            r"|magenbrot|birnbrot|tirgg[ae]l|brunsli|mailänderli"
+            r"|schenkeli|fasnachtskiechli|fasnachtsk[üu]chli|zimtstern"
+            # Swiss dishes and traditions
+            r"|w[äa]he|fl[äa]dli|k[äa]seschnitte|maluns|tatsch"
+            r"|ghackets|h[öo]rnli|hackbraten|fleischk[äa]se|fleischvogel"
+            r"|cervelat|cervelas|bratwurst|kalbsbratwurst"
+            r"|b[üu]rli|weggli|gipfeli|nussgipfel"
+            r"|platte\b|aufschnitt|kalte\s*platte"
+            # Swiss-German compound recipe names
+            r"|kartoffelr[öo]sti|k[äa]sefondue|schoggimousse",
             re.IGNORECASE,
         ),
         "swiss",
@@ -644,6 +660,29 @@ _CUISINE_INGREDIENT_COMBOS: list[tuple[list[str], int, str]] = [
         ],
         2,
         "mexican",
+    ),
+    # Swiss (need at least 2 of these distinctive Swiss ingredients)
+    (
+        [
+            "gruyère",
+            "gruyere",
+            "sbrinz",
+            "appenzeller",
+            "emmentaler",
+            "vacherin",
+            "bündnerfleisch",
+            "cervelat",
+            "cervelas",
+            "bratcrème",
+            "bratcreme",
+            "halbrahm",
+            "kalbsbratwurst",
+            "züpfe",
+            "zopfmehl",
+            "rüebli",
+        ],
+        2,
+        "swiss",
     ),
 ]
 
